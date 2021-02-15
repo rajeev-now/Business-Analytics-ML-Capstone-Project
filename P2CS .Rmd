@@ -1,0 +1,967 @@
+---
+title: "Insurance Premium Default Propensity Prediction"
+author: "Rajeev Nitnawre"
+date: "01/11/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+# **Project 2 - Insurance Premium Default Propensity Prediction**
+
+Taking the project ahead after submission of Project Notes 1, where we did the following: 
+
+1. Introduction: Define the problem statement, need of the present study and business/social opportunity
+2. Data Report
+3. Initial Exploratory Data Analysis
+
+
+## Project Objective for Project Notes 2:
+
+Premium paid by the customer is the major revenue source for insurance companies. Default in premium payments results in significant revenue losses and hence insurance companies would like to know upfront which type of customers would default premium payments.
+
+**The objective of this project**
++ Findings from the exploratory data analysis post data pre-processing
++ Layout the plan of action, with approach for the model building phase of the project
+
+## Project Notes 2:
+
+This Project Notes 2 submission will be about: 
+
+**1. Data pre-processing**
+**2. Exploratory Data Analysis**
+**3. Alternative analytical approaches**
+
+#### 1. Data pre-processing
+
+```{r}
+knitr::opts_chunk$set(error = FALSE,     # suppress errors
+                      message = FALSE,   # suppress messages
+                      warning = FALSE,   # suppress warnings
+                      echo = FALSE,      # suppress code
+                      cache = TRUE)      # enable caching
+```
+
+
+
+#### 1.1 Environment Set up and Data Import
+
+#### 1.1.1 Install necessary Packages and Invoke Libraries
+
+```{r}
+library(readxl) # to read excel file
+library(DataExplorer) #to automate data exploration and treatment
+library(rpivotTable) #enables pivot tables to be created and rendered/exported 
+library(dplyr) #provides a set of tools for efficiently manipulating datasets
+library(ggplot2) #allows you to create graphs that represent both univariate and multivariate numerical and categorical data
+library(grid) # for the primitive graphical functions
+library(gridExtra) # To plot multiple ggplot graphs in a grid
+library(corrplot) # for a graphical display of a correlation matrix, confidence interval or general matrix.
+library(knitr) # Necessary to generate sourcecodes from a .Rmd File
+library(psych) # multivariate analysis
+library(knitr)# Necessary to generate sourcecodes from a .Rmd File
+library(rattle) #for Graphical User Interface 
+library(rpart) # for splitting the dataset recursively,
+library(rpart.plot) #to Plot an rpart model, automatically tailoring the plot for the model's response type.
+```
+
+
+#### 1.1.2 Set up work directory
+
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "/Users/rajeevnitnawre/Downloads/DSBA/Capstone Project - Insurance/Project 1/")
+```
+
+#### 1.1.3 Import and Read the Dataset
+
+```{r}
+PremiumData= read_excel("Insurance Premium Default-Dataset.xlsx")
+```
+
+
+#### 1.2 Missing Value Treatment
+
+```{r}
+anyNA(PremiumData)
+plot_missing(PremiumData)
+```
+**MISSING VALUE PLOT:**  This functions details out that there are no missing values in any of the columns (variables)
+
+
+#### 1.3.a Variable Transformation- Convert "Age in Days" variable to "Age" - in years
+```{r,echo=FALSE}
+PremiumData <- PremiumData %>% 
+  mutate(age =  age_in_days/ 365.2425)
+PremiumData$age=as.integer(PremiumData$age)
+```
+**VARIABLE TRANSFORMATION:** The "Age in Days" column is used to create a new variable column of 'Age" which is represented in years.
+
+#### 1.3.b Variable Transformation- dividing "Income" by 1000 
+```{r,echo=FALSE}
+PremiumData$Income<- PremiumData$Income/1000
+```
+
+
+#### 1.4.a  Addition of New variables - Adding a new variable 'agegroup" to bucket the age in groups
+```{r}
+age=PremiumData$age
+PremiumData$agegroup=cut(age,8,labels = c('1','2','3','4','5','6','7','8'))
+PremiumData$age= round(as.numeric(PremiumData$age),0)
+```
+**ADDING A NEW VARIABLE - "agegroup":** The "age" - in years is used to create a new feature variable i.e. Age Group. The age component is slotted into eight buckets from lowest to highest in ascending order. The eight age groups are as follows
+
++ 1 = Ages between 12 & 29
++ 2 = Ages between 30 & 39
++ 3 = Ages between 40 & 49
++ 4 = Ages between 50 & 59
++ 5 = Ages between 60 & 69
++ 6 = Ages between 70 & 79
++ 7 = Ages between 80 & 89
++ 8 = Ages between 90 & 103
+
+### 1.4.b  Addition of New variables - Adding a new variable 'riskscore_group" to bucket the risk scroes in groups
+```{r}
+risk_score=PremiumData$risk_score
+PremiumData$riskscore_bins=cut(risk_score,9,labels = c('1','2','3','4','5','6','7','8','9'))
+```
+**ADDING A NEW VARIABLE - "riskscore_bins":** The "risk_score" variable is used to create a new feature variable i.e. riskscore_bins. The risk scores component are slotted into nine buckets for exploring the impact of the risk scores to various cohorts.
+
+#### 1.4.c Feature Creation - Converting "0" & "1' into character variables for better refrence during analysis
+
+#### Converting "0" & "1' into character variables for better refrence during analysis
+```{r}
+PremiumData$`Marital Status`=as.character(PremiumData$`Marital Status`)
+PremiumData$Accomodation=as.character(PremiumData$Accomodation)
+PremiumData$default=as.character(PremiumData$default)
+PremiumData$`Marital Status`[PremiumData$`Marital Status`=="1"]<-"Married"
+PremiumData$`Marital Status`[PremiumData$`Marital Status`=="0"]<-"Not Married"
+PremiumData$default[PremiumData$default=="1"]<-"Not Defaulted"
+PremiumData$default[PremiumData$default=="0"]<-"Defaulted"
+PremiumData$Accomodation[PremiumData$Accomodation=="1"]<-"Owned"
+PremiumData$Accomodation[PremiumData$Accomodation=="0"]<-"Rented"
+```
+
+
+
+#### 1.5 Removal of unwanted variables
+```{r}
+PremiumData = subset(PremiumData, select = -c(id,age_in_days))
+dim(PremiumData)
+```
+**DROPPING THE UNWANTED VARIABLES FROM THE DATA SET:**
+
+-- "Age in days" is removed and replaced instead by "Age in Years'
+-- "ID" is removed as it won't be serving any purpose in the analysis.
+
+#### 1.6 Outlier treatment
+
+#### 1.6.a. Age
+```{r,echo=FALSE}
+outlier_treatment_fun = function(PremiumData,age){
+  capping = as.vector(quantile(PremiumData[,age],0.99))
+  flooring = as.vector(quantile(PremiumData[,age],0.01))
+  PremiumData[,age][which(PremiumData[,age]<flooring)]= flooring
+  PremiumData[,age][which(PremiumData[,age]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+
+```
+
+
+#### 1.6.b. Income
+```{r,echo=FALSE}
+outlier_treatment_fun = function(PremiumData,Income){
+  capping = as.vector(quantile(PremiumData[,Income],0.99))
+  flooring = as.vector(quantile(PremiumData[,Income],0.01))
+  PremiumData[,Income][which(PremiumData[,Income]<flooring)]= flooring
+  PremiumData[,Income][which(PremiumData[,Income]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+
+```
+
+#### 1.6.c. Premium
+```{r,echo=FALSE}
+outlier_treatment_fun = function(PremiumData,premium){
+  capping = as.vector(quantile(PremiumData[,premium],0.99))
+  flooring = as.vector(quantile(PremiumData[,premium],0.01))
+  PremiumData[,premium][which(PremiumData[,premium]<flooring)]= flooring
+  PremiumData[,premium][which(PremiumData[,premium]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+
+```
+
+
+
+#### 1.6.d. no_of_premiums_paid
+```{r,echo=FALSE}
+outlier_treatment_fun = function(PremiumData,no_of_premiums_paid){
+  capping = as.vector(quantile(PremiumData[,no_of_premiums_paid],0.99))
+  flooring = as.vector(quantile(PremiumData[,no_of_premiums_paid],0.01))
+  PremiumData[,no_of_premiums_paid][which(PremiumData[,no_of_premiums_paid]<flooring)]= flooring
+  PremiumData[,no_of_premiums_paid][which(PremiumData[,no_of_premiums_paid]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+
+```
+
+
+#### 1.6.e.Count_3-6_months_late
+```{r,echo=FALSE}
+ outlier_treatment_fun = function(PremiumData,Count_3.6_months_late){
+  capping = as.vector(quantile(PremiumData[,Count_3.6_months_late],0.99))
+  flooring = as.vector(quantile(PremiumData[,Count_3.6_months_late],0.01))
+  PremiumData[,Count_3.6_months_late][which(PremiumData[,Count_3_6-months_late]<flooring)]= flooring
+  PremiumData[,Count_3.6_months_late][which(PremiumData[,Count_3_6-months_late]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+```
+
+
+
+#### 1.6.f. **Count_6-12_months_late**
+```{r,echo=FALSE}
+ outlier_treatment_fun = function(PremiumData,Count_6.12_months_late){
+  capping = as.vector(quantile(PremiumData[,Count_6.12_months_late],0.99))
+  flooring = as.vector(quantile(PremiumData[,Count_6.12_months_late],0.01))
+  PremiumData[,Count_6.12_months_late][which(PremiumData[,Count_6.12_months_late]<flooring)]= flooring
+  PremiumData[,Count_3.6_months_late][which(PremiumData[,Count_6.12_months_late]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+```
+
+
+#### 1.6.g. **Count_6-12_months_late**
+```{r,echo=FALSE}
+ outlier_treatment_fun = function(PremiumData,no_of_premiums_paid){
+  capping = as.vector(quantile(PremiumData[,no_of_premiums_paid],0.99))
+  flooring = as.vector(quantile(PremiumData[,no_of_premiums_paid],0.01))
+  PremiumData[,no_of_premiums_paid][which(PremiumData[,no_of_premiums_paid]<flooring)]= flooring
+  PremiumData[,no_of_premiums_paid][which(PremiumData[,no_of_premiums_paid]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late',"no_of_premiums_paid")
+```
+
+
+**OUTLIER TREATMENT FOR VARIABLES HAVING SIGNIFICANT AND EXTREME OUTLIERS:**
+-- The variables identified with significant/extreme outliers are:
++ age
++ Income
++ premium
++ number of premiums paid
++ Count of premium paid late by 3 to 6 months
++ Count of premium paid late by 6 to 12 months
++ Count of premium paid late by more than 12 months
+-- The correlation of these variables is checked for the impact of the Outlier Treatment on these variables. We will explore this is more detail later.
+
+## 2. Exploratory Data Analysis – Step by Step Approach
+
+ To Explore Relationship among variables and identify important variables after data pre-processing.
+
+#### 2.1.a Hygiene check of the dataset
+```{r}
+plot_str(PremiumData)
+dim(PremiumData)
+str(PremiumData)
+plot_intro(PremiumData)
+summary(PremiumData)
+colnames(PremiumData)
+```
+**DIMENSIONS:** shows Columns = 17 and Rows = 79, 853
+
+**STRUCTURE OF DATASET:** There are some variables in the data set which are numerical in nature whose format needs to be changed for proper analysis.
+
+**PLOT DIMENSIONS:** 
+-- The plot intro shows 12% of the columns are discrete in nature while 88% are continuous. This will change as the formats of some variables will be changed for analysis.
+-- There are no missing columns or rows and no missing observations, which indicates the data is uniform and complete with no undesired discrepancies. 
+
+**SUMMARY OF THE DATASET:**
+-- The summary shows  variables namely Marital Status, Vehicles Owned, Number of Dependents, Accommodations & Default will need to changed to factors for a correct representation of what the data is displaying.
+-- Age is also displayed in 'Days" which need to be changed to 'Years"
+-- After changing the characters of the mentioned variables, we will further explore the summary in detail.
+
+#### 2.1.b Changing variable as factors
+```{r}
+
+PremiumData$`Marital Status`=as.factor(PremiumData$`Marital Status`)
+PremiumData$Accomodation=as.factor(PremiumData$Accomodation)
+PremiumData$default=as.factor(PremiumData$default)
+PremiumData$Veh_Owned=as.factor(PremiumData$Veh_Owned)
+PremiumData$No_of_dep=as.factor(PremiumData$No_of_dep)
+PremiumData$Accomodation=as.factor(PremiumData$Accomodation)
+PremiumData$default=as.factor(PremiumData$default)
+PremiumData$sourcing_channel=as.factor(PremiumData$sourcing_channel)
+PremiumData$residence_area_type=as.factor(PremiumData$residence_area_type)
+plot_intro(PremiumData)
+```
+**CHANGING VARIABLES AS FACTORS:** The variables, namely Marital Status, Vehicles Owned, Number of Dependents, Accommodations & Default are appropriately changed to factors to make them discrete observations.
+
+
+#### 2.2 Univariant Analysis
+
+#### 2.2.a Distribution of the dependent variable
+```{r}
+prop.table(table(PremiumData$default))*100
+```
+**DEFAULT VARIABLE:** The table split shows that 6.26% of the people have defaulted in their payment of insurance premium
+
+#### 2.2.b Function to draw histogram and boxplot of numerical variables using ggplot
+```{r}
+
+plot_histogram_n_boxplot = function(variable, variableNameString, binw){
+  h = ggplot(data = PremiumData, aes(x= variable))+
+    labs(x = variableNameString,y ='count')+
+    geom_histogram(fill = 'green',col = 'white',binwidth = binw)+
+    geom_vline(aes(xintercept=mean(variable)),
+               color="black", linetype="dashed", size=0.5)
+  b = ggplot(data = PremiumData, aes('',variable))+ 
+    geom_boxplot(outlier.colour = 'red',col = 'red',outlier.shape = 19)+
+    labs(x = '',y = variableNameString)+ coord_flip()
+  grid.arrange(h,b,ncol = 2)
+}
+```
+
+
+#### 2.2.b Visualize properties of all categorical variables
+
+**1. Observations on Age:**
+```{r}
+
+plot_histogram_n_boxplot(PremiumData$age,"Age",1)
+```
+* There seems an almost normal distribution in the Age of the customers.
+* The range is spread from 20 to 92 with approximately nine outliers between 93 and 102
+* The range is concentrated around 40 years to 61 years
+*  Mean (50.91) & Median (50) both are'nt far apart suggesting there aren't many outliers influencing the mean.
+
+**2. Observations on Age Group:**
+
+```{r}
+PremiumData$agegroup=as.numeric(PremiumData$agegroup)
+plot_histogram_n_boxplot(PremiumData$agegroup,"Age Group",1)
+```
+* Age Group 3 sees the maximum amount of individuals, followed by Group 4
+* The median is at Group 3 which the mean is around 3.5 which shows 
+* The 3rd Quartile is at 4 while maximum stretched to 8 which shows maximum concentration between 2 & 4.
+
+
+**3. Observation on Income:**
+
+```{r}
+plot_histogram_n_boxplot(PremiumData$Income,"Income",1)
+```
+* The income range is very widely dispersed. The mean is 208,850 where the median is 166,560 which denotes some very extreme outliers are influencing the mean.
+* There 3rd quartile is at 252,090 and the maximum stretches to 9,0262,600 which shows the income range is widely dispersed with some making very huge amount compared to the concentration which lie between 108,010 & 252,090
+
+
+**4. Observation on Premium paid in Cash:**
+
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$perc_premium_paid_by_cash_credit,"Premium Paid in Cash",1)
+```
+
+* The data seems right skewed (positive) with the bulk in the range of 3% to 53% around the median.
+* The mean (31%) here is more than median (16.7%) suggesting outliers which are influencing the mean.
+
+
+**5 Observation on late payment of Premium by 3 to 6 months:**
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$`Count_3-6_months_late`,"Premium late by 3 to 6 months",1)
+```
+
+* Data suggest that there are very few who have paid their premiums late i.e. after 3 to 6 months.
+* Infact the median and also the 3rd quartile is in 0 range.
+* The mean is 0.24 which suggests outliers to a maximum of 13 number.
+* Almost 84% of the customers have not paid their premiums late i.e. after 3 to 6 months.
+* 11% have been late 1 time
+* 35 have been late 2 times.
+* 114 have been late more than 5 times and are major outliers here.
+
+
+**6.Observation on late payment of Premium by 6 to 12 months**
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$`Count_6-12_months_late`,"Premium late by 6 to 12 months",1)
+```
+
+* Data suggest that there are very few who have paid their premiums late i.e. after 6 to 12 months.
+* Infact the median and also the 3rd quartile is in 0 range.
+* The mean is 0.07 which suggests outliers to a maximum of 17 number.
+* More than 95% of the customers have not paid their premiums late i.e. after 6 to 12 months.
+* 3.3% have been late 1 time
+* 59 have been late more than 5 times and are major outliers here.
+
+**7. Observation on late payment of Premium by more than 12 months:**
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$Count_more_than_12_months_late,"Premium more than 12 months late",1)
+```
+
+* Data suggest that there are very few who have paid their premiums later than 12 months
+* Infact the median and also the 3rd quartile is in 0 range.
+* The mean is 0.05 which suggests outliers to a maximum of 11 number.
+* More than 95% of the customers have not paid their premiums late i.e. after 6 to 12 months.
+* 3.7% have been late 1 time
+* 12 have been late more than 5 times and are major outliers here.
+
+
+**8. Observation on Risk score of customers:**
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$risk_score,"Risk Score",1)
+```
+
+* Risk score which is similar to "credit score" is extremely left skewed (negative).
+* The mean and Median are around 99 which denoted there aren't any outliers influencing the data
+* The data is majorly at the score of around 99. 
+* The left skewed data is skewed between 98 & 92.
+
+**9. Observation on Riskscore_bins of customers:**
+```{r}
+fig.align = 'left'
+PremiumData$riskscore_bins=as.numeric(PremiumData$riskscore_bins)
+plot_histogram_n_boxplot(PremiumData$riskscore_bins,"Risk Score Bins",1)
+```
+
+* The The median is bin 9 and mean is around 8.5 meaning majority fall in bin 9 category
+* Outliers are to the left with 1st Quartile at 8 bins
+
+
+
+**10.Observation on Premiums paid by customers:**
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$premium,"Premium",1)
+```
+
+* Premiums paid by customers is quite positive skewed and spread out with a huge range between the minimum & maximum plus the range between 3rd quartile and 1st quartile.
+* The Median is at 7500 but the mean is at 10,925 showing the presence of huge outliers which is skewing the data to the right.
+* The range of outliers, ranges from 13800 (3rd Quartile)  right upto $60,000 paid as premium.
+
+
+**11.  Observation on the number of Premiums paid by the customers**
+```{r}
+fig.align = 'left'
+plot_histogram_n_boxplot(PremiumData$no_of_premiums_paid,"Number of Premium Paid",1)
+```
+
+* The number of premiums paid by customers shows a trend similar to the premium paid by the customers.
+* The data is positive skewed and spread out between 2 & 60 numbers of premiums paid.
+* The mean &  median are at 10.86 & 10 resp, showing the outliers aren't majorly influening the data.
+* Though there are outliers which are far beyond the 3rd quartile (14) as far as 60.
+* The bulk of the nos. of premiums are between 7 & 14.
+
+
+#### 2.2.c  Setting up the aesthetics
+```{r}
+unipar = theme(legend.position = "none") + 
+  theme(axis.text = element_text(size = 10), 
+        axis.title = element_text(size = 11), 
+        title = element_text(size = 13, face = "bold"))
+
+# Define color brewer
+col1 = "Set2"
+```
+
+
+
+#### 2.2.d  Plotting the Numerical variables 
+```{r}
+
+g1=ggplot(PremiumData, aes(x=`Marital Status`, fill=`Marital Status`)) + geom_bar()+ unipar + scale_fill_brewer(palette=col1) +
+  geom_text(aes(label = scales::percent(..prop..), group = 1), stat= "count", size = 3.3, position = position_stack(0.06))+
+  geom_text(aes(label = ..count.., group = 1), stat= "count", size = 3.3, position = position_stack(0.95))
+
+g4=ggplot(PremiumData, aes(x=Accomodation, fill=Accomodation)) + geom_bar()+ unipar + scale_fill_brewer(palette=col1) +
+  geom_text(aes(label = scales::percent(..prop..), group = 1), stat= "count", size = 3.3, position = position_stack(0.06))+
+  geom_text(aes(label = ..count.., group = 1), stat= "count", size = 3.3, position = position_stack(0.95))
+
+g6=ggplot(PremiumData, aes(x=residence_area_type, fill=residence_area_type)) + geom_bar()+ unipar + scale_fill_brewer(palette=col1) +
+  geom_text(aes(label = scales::percent(..prop..), group = 1), stat= "count", size = 3.3, position = position_stack(0.06))+
+  geom_text(aes(label = ..count.., group = 1), stat= "count", size = 3.3, position = position_stack(0.95))
+
+```
+
+
+#### 2.2.c Partitioning the barcharts
+```{r}
+fig.align = 'left'
+grid.arrange(g1,g4,g6,ncol=3)
+```
+
+#### 2.2.d   Plotting the Numerical variables contd... 
+```{r}
+g2=ggplot(PremiumData, aes(x=Veh_Owned, fill=Veh_Owned)) + geom_bar()+ unipar + scale_fill_brewer(palette=col1) +
+  geom_text(aes(label = scales::percent(..prop..), group = 1), stat= "count", size = 3.3, position = position_stack(0.06))+
+  geom_text(aes(label = ..count.., group = 1), stat= "count", size = 3.3, position = position_stack(0.95))
+
+g3=ggplot(PremiumData, aes(x= No_of_dep, fill=No_of_dep)) + geom_bar()+ unipar + scale_fill_brewer(palette=col1) +
+  geom_text(aes(label = scales::percent(..prop..), group = 1), stat= "count", size = 3.3, position = position_stack(0.06))+
+  geom_text(aes(label = ..count.., group = 1), stat= "count", size = 3.3, position = position_stack(0.95))
+
+
+g5=ggplot(PremiumData, aes(x=sourcing_channel, fill=sourcing_channel)) + geom_bar()+ unipar + scale_fill_brewer(palette=col1) +
+  geom_text(aes(label = scales::percent(..prop..), group = 1), stat= "count", size = 3.3, position = position_stack(0.06))+
+  geom_text(aes(label = ..count.., group = 1), stat= "count", size = 3.3, position = position_stack(0.95))
+
+```
+
+**Marital Status:** Not much difference in the 2 cohorts, with a slight edge for the unmarried.
+
+**Accommodation:** Again not much difference in the ones owning their houses and renting them. A slight edge to the ones owning their houses.
+
+**Residence Area:** There we see 60% of the customers coming from the urban area
+
+
+#### 2.2.e  Partitioning the barcharts
+```{r}
+fig.align = 'left'
+grid.arrange(g2,g3,g5,ncol=3)
+```
+
+**Number of vehicles owned:** Again equally distributed at around 33% for 1, 2 & 3 vehicles owned by the customers
+
+**Number of Dependents:** The four cohorts i.e. 1, 2, 3 & 4 have similar numbers in the data. All are between 24% & 25% of the share with a slight edge for 3 dependent at 25.31%.
+
+**Sourcing Channels:** of the five cohorts i.r. A,B,C,D & E the bulk of the customers at 54%vhave been sourced by Channel A. Substantial amount of customers come from Channel B (20.7%), Channel C (15%) & Channel D (9.5%)
+
+*We can see Sourcing Channels & Residence Area are the only two verticals from where we are able to see a diversion in the customer data.
+
+
+#### 2.2.f  Visualize properties of all continuous variables
+```{r}
+fig.align = 'left'
+par(mfrow = c(3,2)); 
+
+text(x= barplot(table(PremiumData$age),col='#69b3a2', main = "Age",ylab = "Frequency"), 
+     y = 0, table(PremiumData$age), cex=1,pos=1); 
+boxplot(PremiumData$age, col = "steelblue", horizontal = TRUE, main = "Age"); 
+text(x = fivenum(PremiumData$age), labels = fivenum(PremiumData$age), y = 1.25)
+
+text(x= barplot(table(PremiumData$agegroup),col='#69b3a2', main = "Age Group",ylab = "Frequency"), 
+     y = 0, table(PremiumData$age), cex=1,pos=1); 
+boxplot(PremiumData$agegroup, col = "steelblue", horizontal = TRUE, main = "Age Group"); 
+text(x = fivenum(PremiumData$agegroup), labels = fivenum(PremiumData$agegroup), y = 1.25)
+
+text(x= barplot(table(PremiumData$risk_score),col='#69b3a2', main = "Risk Score",ylab = "Frequency"), 
+y = 0, table(PremiumData$risk_score), cex=1,pos=1); boxplot(PremiumData$risk_score, col = "steelblue", horizontal = TRUE, main = "Risk Score"); text(x = fivenum(PremiumData$risk_score), labels = fivenum(PremiumData$risk_score), y = 1.25)
+
+text(x= barplot(table(PremiumData$riskscore_bins),col='#69b3a2', main = "Riskscore Bins",ylab = "Frequency"), 
+     y = 0, table(PremiumData$riskscore_bins), cex=1,pos=1); 
+boxplot(PremiumData$riskscore_bins, col = "steelblue", horizontal = TRUE, main = "Riskscore Bins"); 
+text(x = fivenum(PremiumData$riskscore_bins), labels = fivenum(PremiumData$riskscore_bins), y = 1.25)
+
+text(x= barplot(table(PremiumData$Income),col='#69b3a2', main = "Income",ylab = "Frequency"), 
+     y = 0, table(PremiumData$Income), cex=1,pos=1); 
+boxplot(PremiumData$Income, col = "steelblue", horizontal = TRUE, main = "Income"); 
+text(x = fivenum(PremiumData$Income), labels = fivenum(PremiumData$Income), y = 1.25)
+
+```
+
+**Age** shows a almost normal distribution spread widely between 20 & 90, with the bulk between 20 & 90.
+
+**Age Groups** follows the Age distribution, with highest concentration in Group 3 followed by Group 4. The median is at Group 4.
+
+**Risk Score** sees a left skew with the concentration between 98.83 & 99.52. The tail is between 91.90 and 98.
+
+**Risk-Score Bins** sees a left skew with bin number 9 housing the bulk of the risk score followed by bin numeber 8. There are'nt any significant numbers of risk scores beyond these 2 bins.
+
+**Income** levels seems dispersed unevenly in the spread.
+
+
+#### 2.2.g  Visualize properties of all continuous variables contd...
+```{r}
+fig.align = 'left'
+par(mfrow = c(3,2)); 
+
+text(x= barplot(table(PremiumData$premium),col='#69b3a2', main = "Premium",ylab = "Frequency"), y = 0, table(PremiumData$premium), cex=1,pos=1); boxplot(PremiumData$premium, col = "steelblue", horizontal = TRUE, main = "Premium"); text(x = fivenum(PremiumData$premium), labels = fivenum(PremiumData$premium), y = 1.25)
+
+text(x= barplot(table(PremiumData$no_of_premiums_paid),col='#69b3a2', main = "Number of Premiums Paid",ylab = "Frequency"), 
+y = 0, table(PremiumData$no_of_premiums_paid), cex=1,pos=1); boxplot(PremiumData$no_of_premiums_paid, col = "steelblue", horizontal = TRUE, main = "Number of Premiums Paid"); text(x = fivenum(PremiumData$no_of_premiums_paid), labels = fivenum(PremiumData$no_of_premiums_paid), y = 1.25)
+
+```
+
+**Premiums paid** sees a right skew with a sharp dip in between the rise. The concentrations is between 5400 & 13800.
+
+**The number of Premiums Paid** seems to have a normal distribution with a positive skew. The concentration is between 7 & 14. Many outliers far & wide up to 60.
+
+
+
+#### 2.2.h  Visualize properties of all continuous variables contd...
+```{r}
+fig.align = 'left'
+par(mfrow = c(3,2)); 
+text(x= barplot(table(PremiumData$`Count_3-6_months_late`),col='#69b3a2', main = "Premium late by 3-6 months",ylab = "Frequency"), y = 0, table(PremiumData$`Count_3-6_months_late`), cex=1,pos=1); 
+boxplot(PremiumData$`Count_3-6_months_late`, col = "steelblue", horizontal = TRUE, main = "Premium late by 3-6 months"); 
+text(x = fivenum(PremiumData$`Count_3-6_months_late`), labels = fivenum(PremiumData$`Count_3-6_months_late`), y = 1.25)
+
+text(x= barplot(table(PremiumData$`Count_6-12_months_late`),col='#69b3a2', main = "Premium late by 6-12 months",ylab = "Frequency"), y = 0, table(PremiumData$`Count_6-12_months_late`), cex=1,pos=1); 
+boxplot(PremiumData$`Count_6-12_months_late`, col = "steelblue", horizontal = TRUE, main = "Premium late by 6 to 12 months"); 
+text(x = fivenum(PremiumData$`Count_6-12_months_late`), labels = fivenum(PremiumData$`Count_6-12_months_late`), y = 1.25)
+
+text(x= barplot(table(PremiumData$Count_more_than_12_months_late),col='#69b3a2', main = "Premium late by more than 12 months",ylab = "Frequency"), y = 0, table(PremiumData$Count_more_than_12_months_late), cex=1,pos=1); 
+boxplot(PremiumData$Count_more_than_12_months_late, col = "steelblue", horizontal = TRUE, main = "Premium late by more than 12 months"); text(x = fivenum(PremiumData$Count_more_than_12_months_late), labels = fivenum(PremiumData$Count_more_than_12_months_late), y = 1.25)
+
+```
+**Premium late by 3 to 6 Months, 6 to 12 Months & more than 12 Months:**
+
+* Looking at the three cohorts above who have been late in paying their premiums on time, its apparent that maximum numbers in all three verticals are the ones who has not been late in paying their premiums on time. 
+
+* There seems comparatively more people who have delayed paying their premiums 1 or 2 time between 3-6 months compared to the ones who delayed their premiums between 6-12 months & beyond 12 months.
+
+
+
+#### 2.3 B-Variant Analysis
+
+#### 2.3.a Setting up the aesthetics
+```{r}
+bipar1 = theme(legend.position = "none") + theme_light() +
+  theme(axis.text = element_text(size = 10), 
+        axis.title = element_text(size = 11), 
+        title = element_text(size = 13, face = "bold"))
+
+# Define color brewer
+col2 = "Set2"
+```
+
+
+#### 2.3.b Default v/s numerical variables
+```{r}
+fig.align = 'left'
+p=ggplot(PremiumData, aes(x = default, y = age, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+p1=ggplot(PremiumData, aes(x = default, y = agegroup, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+p2=ggplot(PremiumData, aes(x = default, y = Income, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+grid.arrange(p,p1,p2,ncol=2)
+```
+
+**Age:**  The Defaulters are comparatively a younger cohort with the median at 46. The concentration range being between 37 & 54. The non-defaulters are at a median of 51 with a range between 41 & 62.
+
+**Age Group:** The defaulters are falling in the concentration range between Group 2 & 4 with a median at 3. The non defaulters are ina a range of Group 3 & 5 with median of 4 which reflects that the concentration of defaulter comparatively fall iin a less age bracket
+
+**Income:**  The income levels of the defaulters show that they come from a low income category compared to the non-defaulters.
+
+#### 2.3.c Default v/s numerical variables contd...
+```{r}
+fig.align = 'left'
+p3=ggplot(PremiumData, aes(x = default, y = `Count_3-6_months_late`, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+p4=ggplot(PremiumData, aes(x = default, y = `Count_6-12_months_late`, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+p5=ggplot(PremiumData, aes(x = default, y = Count_more_than_12_months_late, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+grid.arrange(p3,p4,p5, ncol=3)
+```
+
+**Delayed Premium of 3 to 6 Months:** 
++ More than 85% of the total non defaulters have never defaulted premium by 3 to 6 months. 10% defaulted once & 2.5% defaulted twice.
++ More than 53% of the total defaulters have never defaulted premium by 3 to 6 months. 23% defaulted once & more than 11% defaulted twice
+
+**Delayed Premium of 6 to 12 Months:**
++ Almost 97% of the total non defaulters have never defaulted premium by 6 to 12 months. 2.5% defaulted once.
++ 70% of the total defaulters have never defaulted premium by 6 to 12 months. 16.5% defaulted once.
+
+**Delayed Premium of more than 12 Months:** 
++ 96.5% of the total non defaulters have never defaulted premium by more than 12 months, Approx 3% defaulted once.
++ More than 76% of the total defaulters have never defaulted premium by more than 12 months. 16.7% defaulted once.
+
+
+
+#### 2.3.d Default v/s numerical variables contd...
+```{r}
+fig.align = 'left'
+p6=ggplot(PremiumData, aes(x = default, y = no_of_premiums_paid, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+p7=ggplot(PremiumData, aes(x = default, y = premium, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+grid.arrange(p6,p7,ncol=2)
+```
+
+**Nos. of Premiums Paid:** Both the cohorts i.e. of defaulters and non- defaulters show a similar range in the number of premiums paid. Both cohorts have a median of 10 and almost similar range.
+
+**Premium Paid:**Both cohorts has the same median of 7500. The range for defaulters is comparatively smaller.
+
+#### 2.3.e Default v/s numerical variables contd...
+```{r}
+fig.align = 'left'
+p8=ggplot(PremiumData, aes(x = default, y = risk_score, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+p9=ggplot(PremiumData, aes(x = default, y = riskscore_bins, fill = default)) + geom_boxplot(show.legend = FALSE)+ bipar1 + scale_fill_brewer(palette=col2)+ stat_summary(fun = quantile, geom = "text", aes(label=sprintf("%1.0f", ..y..)),position=position_nudge(x=0.5), size=4, color = "black") + coord_flip()
+
+grid.arrange(p8,p9,ncol=2)
+```
+**Risk Score** The defaulters & non-defaulters fall in the same range between 99 & 100.
+
+#### 2.3.f Setting up the aesthetics
+
+```{r}
+bipar2 = theme(legend.position = "top", 
+               legend.direction = "horizontal", 
+               legend.title = element_text(size = 10),
+               legend.text = element_text(size = 8)) + 
+  theme(axis.text = element_text(size = 10), 
+        axis.title = element_text(size = 11), 
+        title = element_text(size = 13, face = "bold"))
+```
+
+
+#### 2.3.g "Default" vs categorical variables
+```{r}
+library(dplyr)
+
+d1 <- PremiumData %>% group_by(`Marital Status`) %>% count(default) %>% mutate(ratio=scales::percent(n/sum(n)))
+p8=ggplot(PremiumData, aes(x=`Marital Status`, fill=default)) + geom_bar()+ bipar2 + scale_fill_brewer(palette=col2) +
+  geom_text(data=d1, aes(y=n,label=ratio),position=position_stack(vjust=0.5))
+
+d2 <- PremiumData %>% group_by(Veh_Owned) %>% count(default) %>% mutate(ratio=scales::percent(n/sum(n)))
+p9=ggplot(PremiumData, aes(x=Veh_Owned, fill=default)) + geom_bar()+ bipar2 + scale_fill_brewer(palette=col2) +
+  geom_text(data=d2, aes(y=n,label=ratio),position=position_stack(vjust=0.5))
+
+d3 <- PremiumData %>% group_by(No_of_dep) %>% count(default) %>% mutate(ratio=scales::percent(n/sum(n)))
+p10=ggplot(PremiumData, aes(x= No_of_dep, fill=default)) + geom_bar()+ bipar2 + scale_fill_brewer(palette=col2) +
+  geom_text(data=d3, aes(y=n,label=ratio),position=position_stack(vjust=0.5))
+
+d4 <- PremiumData %>% group_by(Accomodation) %>% count(default) %>% mutate(ratio=scales::percent(n/sum(n)))
+p11=ggplot(PremiumData, aes(x=Accomodation, fill=default)) + geom_bar()+ bipar2 + scale_fill_brewer(palette=col2) +
+  geom_text(data=d4, aes(y=n,label=ratio),position=position_stack(vjust=0.5))
+
+d5 <- PremiumData %>% group_by(residence_area_type) %>% count(default) %>% mutate(ratio=scales::percent(n/sum(n)))
+p12=ggplot(PremiumData, aes(x=residence_area_type, fill=default)) + geom_bar()+ bipar2 + scale_fill_brewer(palette=col2) +
+  geom_text(data=d5, aes(y=n,label=ratio),position=position_stack(vjust=0.5))
+
+
+grid.arrange(p8,p9,p10,p11,p12,ncol=3)
+```
+Observation:
+
+*Same kind of data distribution witnessed between defaulters and non-defaulters in the "Marital Status", "Number of Vehicles owned", "Number of Dependents" & "Accommodations" & "Residence Area"
+
+#### 2.4.a Correlation Plot
+```{r}
+fig.align = 'left'
+plot_correlation(PremiumData[,c(-15,-17,-18)])
+```
+
+
+#### 2.4.b.Density Plot 
+```{r}
+fig.align = 'left'
+pairs.panels(PremiumData[,c(-15,-17,-18)],
+             method = "pearson", # correlation method
+             hist.col = "yellow",
+             density = TRUE,  # show density plots
+             ellipses = TRUE # show correlation ellipses
+)
+```
+
+#### Insightful visualizations
+
+* Correlation - We can see a relative correlation between:
++ Income & Premium = **0.30**
++ Late Payment of Premium by 3 to 6 months & Late Payment of Premium by more than 12 months = **0.30**
++ Late Payment of Premium by 6 to 12 months & Late Payment of Premium by more than 12 months = **0.27**
++ Late Payment of Premium by 3 to 6 months & Late Payment of Premium by 6 to 12 months = **0.20**
++ Premium paid in cash & Late Payment of Premium by 3 to 6 months = **0.21**
++ Premium paid in cash & Late Payment of Premium by 6 to 12 months = **0.21**
++ Premium paid in cash & Late Payment of Premium by more than 12 months = **0.17**
++ Number of Premium Paid & Premium = **0.19**
++ Number of Premium Paid & Age = **0.18**
++ Premium & Sourcing Channel = **0.14**
++ Premium & Risk Score = **0.13**
+
+There will be further probe done with regards to the correlation and importance of the correlation of these variables to investigate the cohorts likely to default the insurance premium.
+
+#### Analysing the Categorical variable for corelation
+
+Perform a **Chi-Square test** which is a statistical method to determine if two categorical variables have a     significant correlation between them.
+  
+  ---The **hypothesis testing** will essentially be:
+    + Null Hypothesis - There is no correlation between the two variables        
+    + Alternate Hypothesis - Variable A is correlated with variable B
+  with a set p-values, we will determine the statistical significance of the variables.
+  p-values are << 0.05  
+
+```{r}
+chisq.test(PremiumData$`Marital Status`,PremiumData$Accomodation)
+chisq.test(PremiumData$residence_area_type,PremiumData$Veh_Owned)
+chisq.test(PremiumData$Veh_Owned,PremiumData$Accomodation)
+chisq.test(PremiumData$No_of_dep,PremiumData$Veh_Owned)
+chisq.test(PremiumData$sourcing_channel,PremiumData$residence_area_type)
+chisq.test(PremiumData$`Marital Status`,PremiumData$residence_area_type)
+chisq.test(PremiumData$Accomodation,PremiumData$residence_area_type)
+chisq.test(PremiumData$residence_area_type,PremiumData$Veh_Owned)
+```
+* The relationship between All the categorical variable are significant as p-value is more than significance level of 0.05. hence we reject the null hypothesis.
+
+
+#### Analysing the numerical/continous variables
+
+#### Create a subset of the numerical variables
+```{r}
+subset_PremiumData= PremiumData[, c("age","Income","risk_score","premium",
+                                    "perc_premium_paid_by_cash_credit","Count_3-6_months_late",
+                                    "Count_6-12_months_late","Count_more_than_12_months_late",
+                                    "no_of_premiums_paid")]
+```
+
+
+#### Correlation plot between numerical variavles
+```{r}
+new_vars = c('age','Income','premium','no_of_premiums_paid','Count_3-6_months_late',
+             'Count_6-12_months_late','Count_more_than_12_months_late')
+
+correlations = cor(PremiumData[,new_vars])
+
+col1 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow", "#7FFF7F",
+                           "cyan", "#007FFF"))
+corrplot(correlations,number.cex = 1,method = 'number',type = 'lower',col = col1(100))
+```
+**Observation** 
+There seems to be no  high correlations between any of the numerical variables.
+
+
+#### Adding the dependent variable back to filtered data 
+```{r}
+subset_PremiumData$default<-PremiumData$default
+dim(subset_PremiumData)
+colnames(subset_PremiumData)
+```
+
+#### Plotting the different variables of filtered data
+
+
+```{r echo=FALSE,fig.width=10,fig.height=10}
+newNamesMean = c("age","Income","premium", "risk_score")
+
+bcM.data = (subset_PremiumData[,newNamesMean])
+
+bcM.diag = subset_PremiumData[,10]
+scales <- list(x=list(relation="free"),y=list(relation="free"), cex=10)
+caret::featurePlot(x=bcM.data, y=bcM.diag, plot="pairs", scales=scales,pch=".")
+```
+**Observations**
+* There isn't any linear correlation seen in with any of the variables.
+* Premiums comparatively seem to have more relation with the younger age segments
+* Income though dispersed is more concentrated around 40s and 70s.
+* Higher the income, the risk score keeps increasing
+
+
+```{r echo=FALSE,fig.width=10,fig.height=10}
+newNamesMean = c("perc_premium_paid_by_cash_credit","Count_3-6_months_late","Count_6-12_months_late",
+                 "Count_more_than_12_months_late","no_of_premiums_paid")
+
+bcM.data = (subset_PremiumData[,newNamesMean])
+
+bcM.diag = subset_PremiumData[,10]
+scales <- list(x=list(relation="free"),y=list(relation="free"), cex=10)
+caret::featurePlot(x=bcM.data, y=bcM.diag, plot="pairs", scales=scales,pch=".")
+```
+**Observations**
+
+*Similar pattern observed between "Count_3-6_months_late", "Count_6-12_months_late" & "Count_more_than_12_months_late" 
+* Similar behavior with regards to Number of Premiums paid with all the 3 late payment cohorts, namely "Count_3-6_months_late", "Count_6-12_months_late" & "Count_more_than_12_months_late" 
+* Number of Premiums paid & Premium paid in cash seem more in "Count_3-6_months_late" cohort.
+* Premium paid in cash is higher between 0-30 number of premiums paid.
+
+
+
+### 3. Alternative Analytical Approach 
+  
+  * Incase any variables are found to be highly correlated, they will be dropped from the data set as they will wrongly influence        the model build ahead fo analysis
+  
+  * Partition the data into **train and test data set**.
+    + Ensure the target variable in the data is a factor variable
+    + Ensure the levels of the target variable are correct
+    + Split the data set into a train and test set and ensure the distribution of the dependent variable is similar in the train and      test data as in the original data set
+  
+  
+  **Model Building Approach:**
+  
+The approach here will be to build various models and compare  attributes like Accuracy, Sensitivity, Specificity, ROC curve, AUC, Gini,  KS of the Training set with the Test set to determine which model will come closest to predict the potential defaulters.
+
+The models we can build to analyze will be:
+
+1. Model 1 - **Simple Logistic Model**
+  Logistic regression is a statistical model that uses Logistic function to model the conditional probability. The probability will   always range between 0 and 1. In the case of binary classification  the probability of defaulting premiums and not defaulting       premiums will sum up to 1
+2. Model 2 - **Naïve Bayes**
+  Naïve Bayes is a classification method based on Bayes’ theorem that derives the probability of the given feature vector being       associated with a label. Naïve Bayes has a naive assumption of conditional independence for every feature, which means that the     algorithm expects the features to be independent which not always is the case.
+3. Model 3 - **KNN**
+  KNN algorithms use data and classify new data points based on similarity measures. Classification is done by a majority vote to its neighbors. The data is assigned to the class which has the nearest neighbors. As you increase the number of nearest neighbors, the value of k, accuracy might increase.
+4. Model 4 - **CART MODEL (Decision Tree)**
+  Decision tree learning is a supervised machine learning technique for inducing a decision tree from training data. A decision tree   is a predictive model which is a mapping from observations about an item to conclusions about its target value.
+    + Built a CART model on the train data. Use the "rpart" and the "rattle" libraries to build decision tree.
+      -- create CART model 1 & validate for accuracy
+      -- Tuning the model: further tune the model for further accuracy
+      -- Model Validation: validate the new model
+      -- Model Evaluation: evaluate both the models on the test data & compare their accuracy.
+    + Tune the model and prune the tree, if required.
+    + Test the data on test set.
+    
+5. Model 5 - **Random Forest** 
+  RF classifier is an ensemble method that trains several decision trees in parallel with bootstrapping followed by aggregation,      jointly refreed to as Bagging.
+      -- Incase there is no significant improvement in the CART model from the baseline model, we build the Random Forest.
+      -- Tune the Model
+      -- Model Validation: validate the new model
+      -- Model Evaluation: evaluate both the models on the test data & compare their accuracy.
+      
+6. Model 6 - **Gradient Boosting Machines**
+  Gradient boosting is a type of machine learning boosting. It relies on the intuition that the best possible next model, when        combined with previous models, minimizes the overall prediction error.
+  
+7. Model 7 - **Xtreme Gradient Boosting**
+  Extreme Gradient Boosting (XGBoost) is similar to gradient boosting framework but more efficient. It has both linear model solver   and tree learning algorithms. What makes it fast is its capacity to do parallel computation on a single machine.
+  
+8. Model 8 - **SMOTE Xtreme Gradient Boosting**
+  SMOTE is an oversampling technique where the synthetic samples are generated for the minority class. This algorithm helps to        overcome the overfitting problem posed by random oversampling. Build the Xtreme Gradient Boosting model again after applying        SMOTE.
+
+  + Compare all the model to decide which model for predicting defaulters.
+  + Identify the Important variables used in the final selected model.
+  
+* Checking the Important variables will help strategies how we can reduce the default rates by identifying the factors that drive     them.
+* Proper predictive model evaluation is important because we want our model to have the same predictive ability across many           different data sets.
+* It is important to note here that accuracy is not always the best metric to compare predictive models.
+* We shall try to figure out what would be the metrics of choice to evaluate a predictive model for identifying the potential         defaulters for the Insurance company.
+
+
+The aim is to create the best model to predict & identify the cohorts who are likely to default 
+If we are able to predict the defaulters  we will be able to achieve the goal.
+With this goal in mind, we can understand that the model that has the highest sensitivity (ability to predict the true positives) would be the best model.
+Model sensitivity can be improved by changing the probability threshold and ROC Curves are very helpful in that.
+
+Hence we will use our best model and use the ROC to identify the likely defaulters.
+This will also narrow down on the strategy we need to deploy to address this cohort of potential defaulters by looking at their characteristics which could be the factors that drive high defaults.
+
+
+### Code Appendix
+
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
+

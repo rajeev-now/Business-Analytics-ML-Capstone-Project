@@ -1,0 +1,1619 @@
+---
+title: "Insurance Premium Default Propensity Prediction"
+author: "Rajeev Nitnawre"
+date: "25/11/2021"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+# **Project 3 - Insurance Premium Default Propensity Prediction**
+
+Taking the project ahead after submission of Project Notes 1 & Project Notes 2 where we did the following: 
+
+1. Introduction: Define the problem statement, need of the present study and business/social opportunity
+2. Data Report
+3. Initial Exploratory Data Analysis
+4. Data pre-processing
+5. Exploratory Data Analysis
+6. Alternative analytical approaches
+
+
+## Project Objective for Project Notes 3:
+
+Premium paid by the customer is the major revenue source for insurance companies. Default in premium payments results in significant revenue losses and hence insurance companies would like to know upfront which type of customers would default premium payments.
+
+**The objective of this project**
+* Thorough report on the modeling process and how to built on the initial analysis to increase the accuracy of the model.
+* The insights, conclusion and business interpretation.
+
+## Project Notes 3:
+
+This Project Notes 3 submission will be about: 
+
+1. **Modeling Process (validation & interpretation)**
+2. **Model comparisons (confusion matrix, ROC, AUC, SSE whichever is applicable)**
+3. **Ensemble modeling, wherever applicable**
+4. **Interpretation from the best model**
+5. **Business insights**
+
+#### 1. Data pre-processing
+
+```{r}
+knitr::opts_chunk$set(error = FALSE,     # suppress errors
+                      message = FALSE,   # suppress messages
+                      warning = FALSE,   # suppress warnings
+                      echo = FALSE,      # suppress code
+                      cache = TRUE)      # enable caching
+```
+
+
+
+#### 1.1 Environment Set up and Data Import
+
+#### 1.1.1 Install necessary Packages and Invoke Libraries
+
+```{r}
+library(ggplot2) # For graphs and visualisations
+library(gridExtra) # To plot multiple ggplot graphs in a grid
+library(DataExplorer) # To plot correlation plot between numerical variables
+library(caTools) # Split Data into Test and Train Set
+library(rpart) # To build CART decision tree
+library(rattle) # To visualise decision tree
+library(randomForest) # To build a Random Forest
+library(ROCR) # To visualise the performance classifiers
+library(ineq) # To calculate Gini
+library(InformationValue) # For Concordance-Discordance
+library(readxl) # to read excel file
+library(dplyr) #provides a set of tools for efficiently manipulating datasets
+library(caTools) # Split Data into Test and Train Set
+library(caret) # for confusion matrix function
+library(corrplot) # for a graphical display of a correlation matrix, confidence interval or general matrix.
+library(randomForest) # to build a random forest model
+library(rpart.plot) # to plot decision tree model
+library(xgboost) # to build a XG Boost model
+library(DMwR) # for SMOTE
+library(naivebayes) # for implementation of the Naive Bayes 
+library(e1071) # to train SVM & obtain predictions from the model
+library(mlr) # for a generic, object-oriented, and extensible framework 
+library(gbm) #For power-users with many variables 
+library(car) # use for multicollinearity test (i.e. Variance Inflation Factor(VIF))
+library(MASS) # for step AIC
+library(grid) # for the primitive graphical functions
+library(ROCR) # To plot ROC-AUC curve
+library(InformationValue) # for Concordance-Discordance
+library(class) # to build a KNN model
+library(knitr) # Necessary to generate sourcecodes from a .Rmd File
+library(parallel)
+library(ipred) 
+```
+
+
+```{r}
+r <- mclapply(1:10, function(i) {
+  Sys.sleep(10)  ## Do nothing for 10 seconds
+}, mc.cores = 10)      ## Split this job across 10 cores
+```
+
+
+
+```{r setup, include=FALSE, echo=FALSE}
+require("knitr")
+opts_knit$set(root.dir = "/Users/rajeevnitnawre/Downloads/DSBA/Capstone Project - Insurance/Project 1/")
+```
+
+
+# 1.2 Import and Read the Dataset
+```{r}
+PremiumData= read_excel("Insurance Premium Default-Dataset.xlsx")
+```
+
+
+#### 1.3.a Variable Transformation- Convert "Age in Days" variable to "Age" - in years
+```{r,echo=FALSE}
+PremiumData <- PremiumData %>% 
+  mutate(age =  age_in_days/ 365.2425)
+PremiumData$age=as.integer(PremiumData$age)
+```
+**VARIABLE TRANSFORMATION:** The "Age in Days" column is used to create a new variable column of 'Age" which is represented in years.
+
+#### 1.3.b Variable Transformation- dividing "Income" by 1000 
+```{r,echo=FALSE}
+PremiumData$Income<- PremiumData$Income/1000
+```
+
+
+#### 1.4 Addition of New variables - Adding a new variable 'agegroup" to bucket the age in groups
+```{r,echo=FALSE}
+age=PremiumData$age
+PremiumData$agegroup=cut(age,8,labels = c('1','2','3','4','5','6','7','8'))
+PremiumData$age= round(as.numeric(PremiumData$age),0)
+```
+**ADDING A NEW VARIABLE - "agegroup":** The "age" - in years is used to create a new feature variable i.e. Age Group. The age component is slotted into eight buckets from lowest to highest in ascending order. The eight age groups are as follows
+
++ 1 = Ages between 12 & 29
++ 2 = Ages between 30 & 39
++ 3 = Ages between 40 & 49
++ 4 = Ages between 50 & 59
++ 5 = Ages between 60 & 69
++ 6 = Ages between 70 & 79
++ 7 = Ages between 80 & 89
++ 8 = Ages between 90 & 103
+
+
+#### 1.5 Removal of unwanted variables
+```{r}
+PremiumData = subset(PremiumData, select = -c(id,age_in_days))
+dim(PremiumData)
+```
+**DROPPING THE UNWANTED VARIABLES FROM THE DATA SET:**
+
+
+###Change name of variables
+```{r,echo=FALSE}
+names(PremiumData)[1]<-paste("PercPremiumPaidbyCashCredit")
+names(PremiumData)[3]<-paste("Count3to6monthsLate")
+names(PremiumData)[4]<-paste("Count6to12monthsLate")
+names(PremiumData)[5]<-paste("CountMoreThan12monthsLate") 
+names(PremiumData)[11]<-paste("NoofPremiumsPaid")
+names(PremiumData)[12]<-paste("SourcingChannel")
+names(PremiumData)[13]<-paste("ResidenceAreaType") 
+names(PremiumData)[7]<-paste("VehOwned") 
+names(PremiumData)[8]<-paste("NoofDep")
+names(PremiumData)[10]<-paste("riskScore")
+names(PremiumData)[6]<-paste("MaritalStatus")
+```
+*Changing names of the variable with space or '-' to avoid errors while building models.
+
+
+#### 1.6 Outlier treatment
+
+#### 1.6.a..  Age
+```{r,echo=FALSE}
+  outlier_treatment_fun_age = function(PremiumData,age){
+  capping = as.vector(quantile(PremiumData[,age],0.99))
+  flooring = as.vector(quantile(PremiumData[,age],0.01))
+  PremiumData[,age][which(PremiumData[,age]<flooring)]= flooring
+  PremiumData[,age][which(PremiumData[,age]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+new_vars = c('age','Income','premium','NoofPremiumsPaid','PercPremiumPaidbyCashCredit',
+             'Count3to6monthsLate','Count6to12monthsLate','CountMoreThan12monthsLate')
+```
+
+
+#### 1.6.b. Income
+```{r,echo=FALSE}
+outlier_treatment_fun_Income = function(PremiumData,Income){
+  capping = as.vector(quantile(PremiumData[,Income],0.99))
+  flooring = as.vector(quantile(PremiumData[,Income],0.01))
+  PremiumData[,Income][which(PremiumData[,Income]<flooring)]= flooring
+  PremiumData[,Income][which(PremiumData[,Income]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+#### 1.6.c.Premium
+```{r,echo=FALSE}
+outlier_treatment_fun_Premium = function(PremiumData,premium){
+  capping = as.vector(quantile(PremiumData[,premium],0.99))
+  flooring = as.vector(quantile(PremiumData[,premium],0.01))
+  PremiumData[,premium][which(PremiumData[,premium]<flooring)]= flooring
+  PremiumData[,premium][which(PremiumData[,premium]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+
+
+#### 1.6.d. no_of_premiums_paid
+```{r,echo=FALSE}
+outlier_treatment_fun_No_Premium = function(PremiumData,NoofPremiumsPaid){
+  capping = as.vector(quantile(PremiumData[,NoofPremiumsPaid],0.99))
+  flooring = as.vector(quantile(PremiumData[,NoofPremiumsPaid],0.01))
+  PremiumData[,NoofPremiumsPaid][which(PremiumData[,NoofPremiumsPaid]<flooring)]= flooring
+  PremiumData[,NoofPremiumsPaid][which(PremiumData[,NoofPremiumsPaid]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+
+####1.6.e. Premium paid in Cash
+```{r,echo=FALSE}
+outlier_treatment_fun_No_Premium = function(PremiumData,PercPremiumPaidbyCashCredit){
+  capping = as.vector(quantile(PremiumData[,PercPremiumPaidbyCashCredit],0.99))
+  flooring = as.vector(quantile(PremiumData[,PercPremiumPaidbyCashCredit],0.01))
+  PremiumData[,PercPremiumPaidbyCashCredit][which(PremiumData[,PercPremiumPaidbyCashCredit]<flooring)]= flooring
+  PremiumData[,PercPremiumPaidbyCashCredit][which(PremiumData[,PercPremiumPaidbyCashCredit]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+
+
+####1.6.f. 'Count_3-6_months_late'
+```{r,echo=FALSE}
+ outlier_treatment_fun_3to6 = function(PremiumData,Count3to6monthsLate){
+  capping = as.vector(quantile(PremiumData[,Count3to6monthsLate],0.99))
+  flooring = as.vector(quantile(PremiumData[,Count3to6monthsLate],0.01))
+  PremiumData[,Count3to6monthsLate][which(PremiumData[,Count3to6monthsLate-months_late]<flooring)]= flooring
+  PremiumData[,Count3to6monthsLate][which(PremiumData[,Count3to6monthsLate-months_late]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+
+
+####1.6.g. Count_6-12_months_late
+```{r,echo=FALSE}
+ outlier_treatment_fun_6to12 = function(PremiumData,Count6to12monthsLate){
+  capping = as.vector(quantile(PremiumData[,Count6to12monthsLate],0.99))
+  flooring = as.vector(quantile(PremiumData[,Count6to12monthsLate],0.01))
+  PremiumData[,Count6to12monthsLate][which(PremiumData[,Count6to12monthsLate]<flooring)]= flooring
+  PremiumData[,Count6to12monthsLate][which(PremiumData[,Count6to12monthsLate]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+
+####1.6.h. Count_more_than_12_months_late
+```{r,echo=FALSE}
+ outlier_treatment_fun_ = function(PremiumData,CountMoreThan12monthsLate){
+  capping = as.vector(quantile(PremiumData[,CountMoreThan12monthsLate],0.99))
+  flooring = as.vector(quantile(PremiumData[,CountMoreThan12monthsLate],0.01))
+  PremiumData[,CountMoreThan12monthsLate][which(PremiumData[,CountMoreThan12monthsLate]<flooring)]= flooring
+  PremiumData[,CountMoreThan12monthsLate][which(PremiumData[,CountMoreThan12monthsLate]>capping)]= capping
+  #print(’done’,var_name)
+  return(PremiumData)
+}
+```
+
+**OUTLIER TREATMENT FOR VARIABLES HAVING SIGNIFICANT AND EXTREME OUTLIERS:**
+* The variables identified with significant/extreme outliers are:
+  + age
+  + Income
+  + premium
+  + number of premiums paid
+  + Count of premium paid late by 3 to 6 months
+  + Count of premium paid late by 6 to 12 months
+  + Count of premium paid late by more than 12 months
+* The above variables were seen to have considerable outliers during the Uni Variant Analysis. The correlation of these variables is checked for the impact of the Outlier Treatment on these variables.The outlier treatments will prevent the outliers to influence the models to misinterpret the data.
+
+
+
+#### 1.7 Create a subset of the numerical variables
+```{r}
+Num_subset_PremiumData= PremiumData[, c("age","Income","riskScore","premium",
+                                    "PercPremiumPaidbyCashCredit","Count3to6monthsLate",
+                                    "Count6to12monthsLate","CountMoreThan12monthsLate",
+                                    "NoofPremiumsPaid")]
+Num_subset_PremiumData$default<-PremiumData$default
+highCorr <- findCorrelation(cor(Num_subset_PremiumData[,-10]), cutoff = 0.7)
+
+```
+**No high correlation** observed between any numerical variables.
+
+
+#### 1.8 Ensure that the target variable is a factor & Rename the levels & Relevel
+```{r}
+PremiumData$default<- as.factor(PremiumData$default)
+levels(PremiumData$default) <- c("Defaulters", "Non_Defaulters")
+PremiumData$default <- relevel(PremiumData$default, ref = "Defaulters") # Reference class : Defaulter
+levels(PremiumData$default)
+```
+
+
+
+#### 1.9 Retain "age" and remove the variable "Age Group" after EDA 
+```{r}
+PremiumData=PremiumData[,-17]
+```
+  
+
+#### 1.10 Correlation plot between numerical variavles
+```{r}
+new_vars = c('age','Income','premium','NoofPremiumsPaid','PercPremiumPaidbyCashCredit',
+             'Count3to6monthsLate','Count6to12monthsLate','CountMoreThan12monthsLate')
+
+correlations = cor(PremiumData[,new_vars])
+
+col1 <- colorRampPalette(c("#7F0000", "red", "#FF7F00", "yellow", "#7FFF7F",
+                           "cyan", "#007FFF"))
+corrplot(correlations,number.cex = 1,method = 'number',type = 'lower',col = col1(100))
+```
+    As observed **No high correlation** observed between any numerical variables.
+
+
+
+## 2. Modelling: Create Multiple Models
+
+
+#### 2.1 Split the Data into Train & Test (80-20 split)
+```{r warning=FALSE}
+set.seed(123)
+
+trainIndex <- createDataPartition(PremiumData$default, p = .80, list = FALSE)
+
+PremiumData_Train <- PremiumData[ trainIndex,]
+PremiumData_Test  <- PremiumData[-trainIndex,]
+
+prop.table(table(PremiumData_Train$default))*100
+prop.table(table(PremiumData_Test$default))*100
+prop.table(table(PremiumData$default))*100
+```
+* The newly form Train & Test data have similar distribution of the dependent variable. 
+
+
+
+```{r}
+rm(PremiumData)
+rm(Num_subset_PremiumData)
+```
+
+
+## 3. Model Processing
+
+### 3.1 SMOTE - Smotering the Train Data Set before we crate models for analysis
+```{r}
+
+table(PremiumData_Train$default)
+prop.table(table(PremiumData_Train$default))
+
+PremiumData_Train <- as.data.frame(PremiumData_Train)
+PremiumData_Train$default <- as.factor(PremiumData_Train$default)
+
+   
+smote_train <- SMOTE(default ~ ., data  = PremiumData_Train[,c(-12,-13)],
+                     perc.over = 3700,
+                     perc.under = 300
+                    )
+                       
+prop.table(table(smote_train$default))*100
+table(smote_train$default)
+```
+* We SMOTE the trained dataset to handle the class unbalanced classification in the data set. 
+
+
+#### Define the training control
+```{r warning=FALSE}
+fitControl <- trainControl(
+  method = 'repeatedcv',           # k-fold cross validation
+  number = 5,                     # number of folds or k
+  repeats = 1,                     # repeated k-fold cross-validation
+  allowParallel = TRUE,
+  classProbs = TRUE,
+  summaryFunction=twoClassSummary# should class probabilities be returned
+) 
+```
+
+
+### 3.2 Model 1 - CART Model
+
+#### 3.2.a. Cart Model 1
+
+#### Built Cart Model on train data set,use the "rpart" and the "rattle" libraries to build decision trees.
+```{r}
+r.ctrl = rpart.control(minsplit = 50, minbucket = 10, cp = 0, xval = 10)
+cart_model1 <- rpart(formula = default~., data = PremiumData_Train, method = "class", control = r.ctrl)
+```
+* We will need to prune this decision tree
+
+
+#### Model Tuning
+
+The cost complexity table can be obtained using the printcp or plotcp functions
+```{r}
+printcp(cart_model1)
+plotcp(cart_model1)
+```
+
+The unncessarily complex tree above can be pruned using a complexity threshold. Using a complexity threshold of 0.062 gives us a relatively simpler tree.
+Variables actually used in the tree construction:
+
+* Age         
+* Income  
+* perc_premium_paid_by_cash_credit     
+* Count_6to12_months_late    
+* Risk_Score       
+
+### Cart Model 2
+
+```{r}
+cart_model2 = prune(cart_model1, cp= 0.062 ,"CP")
+printcp(cart_model2)
+cart_model2
+```
+Variables actually used in tree construction:
+
+* Income  
+* perc_premium_paid_by_cash_credit     
+
+
+
+Let us check the variable importance
+
+```{r}
+cart_model1$variable.importance
+# Variable importance is generally computed based on the corresponding reduction of predictive accuracy 
+# when the predictor of interest is removed.
+```
+* Top Important Variable according to the CART model are:
+1) Count 6to 12 months Late
+2) Perc Premium Paid by Cash Credit
+3) Count 3 to 6 months Late
+4) Count More Than 12 months Late
+5) risk Score
+6) Income
+
+
+#### Model Validation
+```{r}
+# Predicting on the train dataset
+train_predict.class_CART <- predict(cart_model2, PremiumData_Train, type="class") # Predicted Classes
+train_predict.score_CART <- predict(cart_model2, PremiumData_Train) # Predicted Probabilities
+
+# Create confusion matrix for train data predictions
+tab.train_CART = table(PremiumData_Train$default, train_predict.class_CART)
+tab.train_CART
+
+# Accuracy on train data
+accuracy.train_CART = sum(diag(tab.train_CART)) / sum(tab.train_CART)
+accuracy.train_CART
+```
+The training model had a 93.74% accuracy.
+
+#### Model Evaluation
+
+```{r}
+# Predicting on the test dataset
+test_predict.class_CART <- predict(cart_model2, PremiumData_Test, type="class") # Predicted Classes
+test_predict.score_CART <- predict(cart_model2, PremiumData_Test) # Predicted Probabilities
+
+# Create confusion matrix for test data predictions
+tab.test_CART = table(PremiumData_Test$default, test_predict.class_CART)
+tab.test_CART
+
+# Accuracy on test data
+accuracy.test_CART = sum(diag(tab.test_CART)) / sum(tab.test_CART)
+accuracy.test_CART
+```
+* The test model had a 93.74% accuracy.
+* The CART model does not overfit the data 
+
+Both the Train & Test Models give an accuracy of 93%.
+
+#### Predict Default class and probability for Cart Model
+
+```{r}
+
+# Predict on test data using cart_model1
+cart_model1_predict_class = predict(cart_model1, PremiumData_Test, type = 'class')
+cart_model1_predict_score = predict(cart_model1, PremiumData_Test, type = 'prob')
+
+# Predict on test data using cart_model2
+cart_model2_predict_class = predict(cart_model2, PremiumData_Test, type = 'class')
+cart_model2_predict_score = predict(cart_model2, PremiumData_Test, type = 'prob')
+```
+
+#### Confusion Matrix
+```{r}
+#Confusion Matrix of Cart_Model1
+conf_mat_cart_model1 = table(PremiumData_Test$default, cart_model1_predict_class)
+conf_mat_cart_model1
+
+#Confusion Matrix of Cart_Model2
+conf_mat_cart_model2 = table(PremiumData_Test$default, cart_model2_predict_class)
+conf_mat_cart_model2
+```
+
+The Cart Model 1 identifies True Positive and False Negatives better than cart Model 2 which is not able to identifiers Defaulters.
+
+#### Accuracy
+```{r}
+# Accuracy of cart Model 1
+accuracy_cart_model1 = sum(diag(conf_mat_cart_model1)) / sum(conf_mat_cart_model1)
+accuracy_cart_model1
+
+# Accuracy of cart Model 2
+accuracy_cart_model2 = sum(diag(conf_mat_cart_model2)) / sum(conf_mat_cart_model2)
+accuracy_cart_model2
+```
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of Cart Model1
+sensitivity_cart_model1 = conf_mat_cart_model1[2,2] / sum(conf_mat_cart_model1)
+sensitivity_cart_model1
+# Sensitivity of Cart Model2
+sensitivity_cart_model2 = conf_mat_cart_model2[2,2] / sum(conf_mat_cart_model2)
+sensitivity_cart_model2
+```
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of Cart Model 1
+specificity_cart_model1 = conf_mat_cart_model1[1,1] / sum(conf_mat_cart_model1)
+specificity_cart_model1
+# Specificity of Cart Model 2
+specificity_cart_model2 = conf_mat_cart_model2[1,1] / sum(conf_mat_cart_model2)
+specificity_cart_model2
+```
+
+#### Precision
+```{r}
+# Precision of Cart Model 1
+precision_cart_model1 = conf_mat_cart_model1[2,2] / sum(conf_mat_cart_model1[,'Defaulters'])
+precision_cart_model1
+
+# Precision of Cart Model 2
+precision_cart_model2 = conf_mat_cart_model2[2,2] / sum(conf_mat_cart_model2[,'Defaulters'])
+precision_cart_model2
+```
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+# KS of Cart Model 1
+pred_cart_model1 = prediction(cart_model1_predict_score[, 2], PremiumData_Test$default) 
+perf_cart_model1 = ROCR::performance(pred_cart_model1,"tpr","fpr")
+ks_cart_model1 = max(attr(perf_cart_model1,'y.values')[[1]] - attr(perf_cart_model1,'x.values')[[1]])
+
+pred_cart_model2 = prediction(cart_model2_predict_score[, 2], PremiumData_Test$default) 
+perf_cart_model2 = ROCR::performance(pred_cart_model2,"tpr","fpr")
+ks_cart_model2 = max(attr(perf_cart_model2,'y.values')[[1]] - attr(perf_cart_model2,'x.values')[[1]])
+```
+
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_cart_model1 = ROCR::performance(pred_cart_model1, measure = "auc")
+auc_cart_model1 = auc_cart_model1@y.values[[1]]
+
+auc_cart_model2 = ROCR::performance(pred_cart_model2, measure = "auc")
+auc_cart_model2 = auc_cart_model2@y.values[[1]]
+```
+
+
+#### Gini
+```{r}
+library(ineq) 
+
+#Gini of Cart Model 1
+gini_cart_model1 = ineq(cart_model1_predict_score[, 2],"gini")
+
+#Gini of Cart Model 2
+gini_cart_model2 = ineq(cart_model2_predict_score[, 2],"gini")
+```
+
+
+#### Concordance - Discordance
+```{r}
+#Concordance of Cart Model 1
+concordance_cart_model1 = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0), predictedScores = ifelse(cart_model1_predict_class == 'Defaulters', 1,0))
+
+#Concordance of Cart Model 2
+concordance_cart_model2 = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0), predictedScores = ifelse(cart_model2_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - Cart Model 1 & 2
+
+```{r}
+cart_model1_metrics = c(accuracy_cart_model1, sensitivity_cart_model1, specificity_cart_model1, precision_cart_model1, ks_cart_model1, auc_cart_model1, gini_cart_model1, concordance_cart_model1$Concordance)
+
+cart_model2_metrics = c(accuracy_cart_model2, sensitivity_cart_model2, specificity_cart_model2, precision_cart_model2, ks_cart_model2, auc_cart_model2, gini_cart_model2, concordance_cart_model2$Concordance)
+```
+
+
+**Cart Model  1** is a better option amongst all the coefficients.
+
+
+
+
+### Model 2 : Logistic Regression Model 
+
+```{r}
+PremiumData_Train$default<- as.factor(PremiumData_Train$default)
+PremiumData_Test$default<- as.factor(PremiumData_Test$default)
+lrmod <- caret::train(default ~ .,
+                      method     = "glm",
+                      metric     = "Sensitivity",
+                      data       = PremiumData_Train)
+
+
+lrpred<-predict(lrmod,newdata=PremiumData_Test)
+
+lrpred=as.numeric(lrpred)
+PremiumData_Test$default=as.numeric(PremiumData_Test$default)
+confusionMatrix(table(lrpred,PremiumData_Test$default))
+
+caret::varImp(lrmod)
+```
+
+
+#### Predict Default class and probability for Logistic Regression Model
+```{r}
+#Predict on test data using Logistic Regression Model
+lrmod_predict_class = predict(lrmod, PremiumData_Test, type = 'raw')
+lrmod_predict_score = predict(lrmod, PremiumData_Test, type = 'prob')
+```
+
+
+#### Creating Confusion Matrix
+
+```{r}
+#Confusion Matrix of Logistic Regression Model
+conf_mat_lrmod = table(PremiumData_Test$default, lrmod_predict_class)
+conf_mat_lrmod
+
+```
+
+#### Accuracy
+```{r}
+# Accuracy of Logistic Regression Model
+accuracy_lrmod = sum(diag(conf_mat_lrmod)) / sum(conf_mat_lrmod)
+accuracy_lrmod
+```
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of Logistic Regression Model
+sensitivity_lrmod = conf_mat_lrmod[2,2]/ sum(conf_mat_lrmod)
+sensitivity_lrmod
+```
+
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of Logistic Regression Model 
+specificity_lrmod = conf_mat_lrmod[1,1] / sum(conf_mat_lrmod)
+specificity_lrmod
+```
+
+#### Precision
+```{r}
+# Precision of Logistic Regression Model 
+precision_lrmod = conf_mat_lrmod[2,2] / sum(conf_mat_lrmod[,'Defaulters'])
+precision_lrmod
+```
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+# KS of Logistic Regression
+pred_lrmod = prediction(lrmod_predict_score[, 2], PremiumData_Test$default) 
+perf_lrmod = ROCR::performance(pred_lrmod,"tpr","fpr")
+ks_lrmod = max(attr(perf_lrmod,'y.values')[[1]] - attr(perf_lrmod,'x.values')[[1]])
+```
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_lrmod = ROCR::performance(pred_lrmod, measure = "auc")
+auc_lrmod = NA
+```
+
+#### Gini
+```{r}
+library(ineq) 
+#Gini of Logistic Regression Model
+gini_lrmod = ineq(lrmod_predict_score[, 2],"gini")
+```
+
+#### Concordance - Discordance
+```{r}
+#Concordance of Logistic Regression Model 
+concordance_lrmod = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0),
+                                   predictedScores = ifelse(lrmod_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - Logistic Regression models
+```{r}
+lrmod_metrics = c(accuracy_lrmod, sensitivity_lrmod, specificity_lrmod, precision_lrmod, 
+ks_lrmod, auc_lrmod, gini_lrmod, concordance_lrmod$Concordance)
+```
+
+
+
+
+### Model 3  Naive Bayes Model
+```{r}
+PremiumData_Train$default<- as.factor(PremiumData_Train$default)
+PremiumData_Test$default<- as.factor(PremiumData_Test$default)
+model_nb <- caret::train(default ~ ., data = PremiumData_Train,
+                         method = "naive_bayes")
+
+summary(model_nb)
+```
+
+
+#### Confusion matrix
+```{r}
+nb_predictions_test <- predict(model_nb, newdata = PremiumData_Test, type = "raw")
+nb_predictions_test=as.numeric(nb_predictions_test)
+PremiumData_Test$default=as.numeric(PremiumData_Test$default)
+
+confusionMatrix(table(nb_predictions_test,PremiumData_Test$default))
+```
+
+
+#### Predict Default class and probability for Naive Bayes Model
+```{r}
+#Predict on test data using Logistic Regression Model
+model_nb_predict_class = predict(model_nb, PremiumData_Test, type = 'raw')
+model_nb_predict_score = predict(model_nb, PremiumData_Test, type = 'prob')
+```
+
+
+#### Creating Confusion Matrix
+
+```{r}
+#Confusion Matrix of Logistic Regression Model
+conf_mat_model_nb = table(PremiumData_Test$default, model_nb_predict_class)
+conf_mat_model_nb
+
+```
+
+#### Accuracy
+```{r}
+# Accuracy of Naive Bayes Model
+accuracy_model_nb = sum(diag(conf_mat_model_nb)) / sum(conf_mat_model_nb)
+accuracy_model_nb
+```
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of Naive Bayes Model
+sensitivity_model_nb = conf_mat_model_nb[2,2]/ sum(conf_mat_model_nb)
+sensitivity_model_nb
+```
+
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of LNaive Bayes Model 
+specificity_model_nb = conf_mat_model_nb[1,1] / sum(conf_mat_model_nb)
+specificity_model_nb
+```
+
+#### Precision
+```{r}
+# Precision of Naive Bayes Model 
+precision_model_nb = conf_mat_model_nb[2,2] / sum(conf_mat_model_nb[,'Defaulters'])
+precision_model_nb
+```
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+# KS of Naive Bayes
+pred_model_nb = prediction(model_nb_predict_score[, 2], PremiumData_Test$default) 
+perf_model_nb = ROCR::performance(pred_model_nb,"tpr","fpr")
+ks_model_nb = max(attr(perf_model_nb,'y.values')[[1]] - attr(perf_model_nb,'x.values')[[1]])
+```
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_model_nb = ROCR::performance(pred_model_nb, measure = "auc")
+auc_model_nb = NA
+```
+
+#### Gini
+```{r}
+library(ineq) 
+#Gini of Naive Bayes Model
+gini_model_nb = ineq(model_nb_predict_score[, 2],"gini")
+```
+
+#### Concordance - Discordance
+```{r}
+#Concordance of Naive Bayes Model 
+concordance_model_nb = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0),
+                                   predictedScores = ifelse(model_nb_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - Naive Bayes
+```{r}
+model_nb_metrics = c(accuracy_model_nb, sensitivity_model_nb, specificity_model_nb, precision_model_nb, 
+ks_model_nb, auc_model_nb, gini_model_nb, concordance_model_nb$Concordance)
+```
+
+
+
+
+
+### Model 4:  KNN  Model
+```{r}
+set.seed(123)
+knn_model <- caret::train(default ~ ., data = PremiumData_Train,
+                          preProcess = c("center", "scale"),
+                          method = "knn",
+                          tuneLength = 3,
+                          trControl = fitControl)
+knn_model
+
+
+```
+
+
+````{r}
+knn_predictions_test <- predict(knn_model, newdata = PremiumData_Test, type = "raw")
+#confusionMatrix(knn_predictions_test, PremiumData_Test$default)
+```
+
+
+#### Predict Default class and probability for KNN Model
+```{r}
+
+#Predict on test data using KNN Model
+knn_model_predict_class = predict(knn_model, PremiumData_Test, type = 'raw')
+knn_model_predict_score = predict(knn_model, PremiumData_Test, type = 'prob')
+```
+
+#### Creating Confusion Matrix
+```{r}
+#Confusion Matrix of KNN Model
+conf_mat_knn_model = table(PremiumData_Test$default, knn_model_predict_class)
+conf_mat_knn_model
+```
+
+#### Accuracy
+```{r}
+# Accuracy of KNN Model 
+accuracy_knn_model = sum(diag(conf_mat_knn_model)) / sum(conf_mat_knn_model)
+accuracy_knn_model
+```
+
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of KNN Model
+sensitivity_knn_model = conf_mat_knn_model[2,2]/ sum(conf_mat_knn_model)
+sensitivity_knn_model
+```
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of KNN Model 
+specificity_knn_model = conf_mat_knn_model[1,1] / sum(conf_mat_knn_model)
+specificity_knn_model
+```
+
+
+#### Precision
+```{r}
+# Precision of KNN Model
+precision_knn_model = conf_mat_knn_model[2,2] / sum(conf_mat_knn_model[,'Defaulters'])
+precision_knn_model
+```
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+
+# KS of KNN Model 
+pred_knn_model = prediction(knn_model_predict_score[, 2], PremiumData_Test$default) 
+perf_knn_model = ROCR::performance(pred_knn_model,"tpr","fpr")
+ks_knn_model = max(attr(perf_knn_model,'y.values')[[1]] - attr(perf_knn_model,'x.values')[[1]])
+```
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_knn_model = ROCR::performance(pred_knn_model, measure = "auc")
+auc_knn_model = auc_knn_model@y.values[[1]]
+```
+
+#### Gini
+```{r}
+library(ineq) 
+#Gini of KNN Model
+gini_knn_model = ineq(knn_model_predict_score[, 2],"gini")
+```
+
+#### Concordance - Discordance
+```{r}
+#Concordance of KNN Model
+concordance_knn_model = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0),
+                                      predictedScores = ifelse(knn_model_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - KNN model
+```{r}
+knn_model_metrics = c(accuracy_knn_model, sensitivity_knn_model, specificity_knn_model, precision_knn_model, 
+ks_knn_model, auc_knn_model, gini_knn_model, concordance_knn_model$Concordance)
+
+```
+
+
+
+
+### Model 5:Random Forest Model - BAGGING
+
+### Build the first RF model
+
+```{r}
+set.seed(1000)
+par(mar=c(1,1,1,1))
+
+PremiumData_Train$default=as.factor(PremiumData_Train$default)
+PremiumData_Test$default=as.factor(PremiumData_Test$default)
+rf_model1 = randomForest(
+  default ~ .,
+  data = PremiumData_Train,
+  ntree = 51,
+  mtry = 10,
+  nodesize = 10,
+  importance = TRUE
+)
+```
+
+```{r}
+print(rf_model1)
+```
+
+
+
+```{r}
+plot(rf_model1)
+```
+* The plot reveals that anything more than, say 25 trees, is really not that valuable.
+
+```{r}
+print(rf_model1$importance)
+```
+* Important variables as per RF1 are: 
+1) Count_6to12_months_late
+2) No of Dep
+2) risk_score
+3) no_of_premiums_paid
+4) premium
+5) Veh_Owned
+6) perc_premium_paid_by_cash_credit
+
+
+### Random Forest Model 2
+
+We will take ntree = 25 (odd number of trees are preferred)
+```{r}
+set.seed(1000) # To ensure reproducibility
+par(mar=c(1,1,1,1))
+rf_model2 = tuneRF(x = PremiumData_Train[, -15], # matrix or data frame of predictor/independent variables
+                   y = PremiumData_Train$default, # response vector (factor for classification, numeric for regression)
+                   mtrystart = 5, # starting value of mtry
+                   stepfactor=1.5, # at each iteration, mtry is inflated (or deflated) by this value
+                   ntree=25, # number of trees built for each mtry value
+                   improve=0.0001, # the (relative) improvement in OOB error must be by this much for the search to continue
+                   nodesize=10, # Minimum size of terminal nodes
+                   trace=TRUE, # prints the progress of the search
+                   plot=TRUE,
+                   doBest=TRUE, # return a forest using the optimal mtry found
+                   importance=TRUE # 
+)
+```
+ *The optimal number of mtry is 3.
+
+```{r}
+plot(rf_model2)
+```
+* tuneRF returns rf_model2. It is the random forest of 25 trees built with m = 1
+
+
+#### Model Validation
+```{r}
+# Predicting on the train dataset
+train_predict.class_RF <- predict(rf_model2, PremiumData_Train, type="class") # Predicted Classes
+train_predict.score_RF <- predict(rf_model2, PremiumData_Train, type = 'prob') # Predicted Probabilities
+
+# Create confusion matrix for train data predictions
+tab.train_RF = table(PremiumData_Train$default, train_predict.class_RF)
+tab.train_RF
+
+# Accuracy on train data
+accuracy.train_RF = sum(diag(tab.train_RF)) / sum(tab.train_RF)
+accuracy.train_RF
+```
+* The Train set has 95.24% accuracy
+* The Train set shows a good collection on True Positives & False Negatives
+
+
+
+#### Model Evaluation
+
+```{r}
+# Predicting on the test dataset
+test_predict.class_RF <- predict(rf_model2, PremiumData_Test, type="class") # Predicted Classes
+test_predict.score_RF <- predict(rf_model2, PremiumData_Test, type = 'prob') # Predicted Probabilities
+
+# Create confusion matrix for test data predictions
+tab.test_RF = table(PremiumData_Test$default, test_predict.class_RF)
+tab.test_RF
+
+# Accuracy on test data
+accuracy.test_RF = sum(diag(tab.test_RF)) / sum(tab.test_RF)
+accuracy.test_RF
+```
+* The Test set has 93.86% accuracy
+* Both model show a good accuracy and dont overfit the data, but the true positive identification is better on the Train set.
+
+
+#### Predict Default class and probability for Random Forest
+
+```{r}
+
+# Predict on test data using rf_model1
+rf_model1_predict_class = predict(rf_model1, PremiumData_Test, type = 'class')
+rf_model1_predict_score = predict(rf_model1, PremiumData_Test, type = 'prob')
+
+# Predict on test data using rf_model2
+rf_model2_predict_class = predict(rf_model2, PremiumData_Test, type = 'class')
+rf_model2_predict_score = predict(rf_model2, PremiumData_Test, type = 'prob')
+```
+
+
+#### Creating Confusion Matrix
+```{r}
+#Confusion Matrix of Random Forest Model 1
+conf_mat_rf_model1 = table(PremiumData_Test$default, rf_model1_predict_class)
+conf_mat_rf_model1
+
+#Confusion Matrix of Random Forest Model 2
+conf_mat_rf_model2 = table(PremiumData_Test$default, rf_model2_predict_class)
+conf_mat_rf_model2
+```
+Random Forest Model 1 is able to identify the defaulters more correctly than RF Model 2 
+
+#### Accuracy
+```{r}
+# Accuracy of RF Model 1
+accuracy_rf_model1 = sum(diag(conf_mat_rf_model1)) / sum(conf_mat_rf_model1)
+accuracy_rf_model1 
+# Accuracy of RF Model 1
+accuracy_rf_model2 = sum(diag(conf_mat_rf_model2)) / sum(conf_mat_rf_model2)
+accuracy_rf_model2 
+```
+
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of RF Model1
+sensitivity_rf_model1 = conf_mat_rf_model1[2,2] / sum(conf_mat_rf_model1)
+sensitivity_rf_model1
+# Sensitivity of RF Model2
+sensitivity_rf_model2 = conf_mat_rf_model2[2,2] / sum(conf_mat_rf_model2)
+sensitivity_rf_model2
+```
+
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of RF Model 1
+specificity_rf_model1 = conf_mat_rf_model1[1,1] / sum(conf_mat_rf_model1)
+specificity_rf_model1
+# Specificity of RF Model 
+specificity_rf_model2 = conf_mat_rf_model2[1,1] / sum(conf_mat_rf_model2)
+specificity_rf_model2
+```
+
+
+#### Precision
+```{r}
+# Precision of RF Model 1
+precision_rf_model1 = conf_mat_rf_model1[2,2] / sum(conf_mat_rf_model1[,'Defaulters'])
+
+# Precision of RF Model 2
+precision_rf_model2 = conf_mat_rf_model2[2,2] / sum(conf_mat_rf_model2[,'Defaulters'])
+```
+
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+# KS of RF Model 1
+pred_rf_model1 = prediction(rf_model1_predict_score[, 2], PremiumData_Test$default) 
+perf_rf_model1 = ROCR::performance(pred_rf_model1,"tpr","fpr")
+ks_rf_model1 = max(attr(perf_rf_model1,'y.values')[[1]] - attr(perf_rf_model1,'x.values')[[1]])
+
+pred_rf_model2 = prediction(rf_model2_predict_score[, 2], PremiumData_Test$default) 
+perf_rf_model2 = ROCR::performance(pred_rf_model2,"tpr","fpr")
+ks_rf_model2 = max(attr(perf_rf_model2,'y.values')[[1]] - attr(perf_rf_model2,'x.values')[[1]])
+```
+
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_rf_model1 = ROCR::performance(pred_rf_model1, measure = "auc")
+auc_rf_model1 = auc_rf_model1@y.values[[1]]
+
+auc_rf_model2 = ROCR::performance(pred_rf_model2, measure = "auc")
+auc_rf_model2 = auc_rf_model2@y.values[[1]]
+```
+
+
+#### Gini
+```{r}
+library(ineq) 
+#Gini of RF Model 1
+gini_rf_model1 = ineq(rf_model1_predict_score[, 2],"gini")
+
+#Gini of RF Model 2
+gini_rf_model2 = ineq(rf_model2_predict_score[, 2],"gini")
+```
+
+#### Concordance - Discordance
+```{r}
+#Concordance of RF Model 1
+concordance_rf_model1 = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0), predictedScores = ifelse(rf_model1_predict_class == 'Defaulters', 1,0))
+
+#Concordance of RF Model 2
+concordance_rf_model2 = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0), predictedScores = ifelse(rf_model2_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - Random Model 1 & 2
+```{r}
+rf_model1_metrics = c(accuracy_rf_model1, sensitivity_rf_model1, specificity_rf_model1, precision_rf_model1, ks_rf_model1, auc_rf_model1, gini_rf_model1, concordance_rf_model1$Concordance)
+
+rf_model2_metrics = c(accuracy_rf_model2, sensitivity_rf_model2, specificity_rf_model2, precision_rf_model2, ks_rf_model2, auc_rf_model2, gini_rf_model2, concordance_rf_model2$Concordance)
+```
+
+
+
+
+#### ROC Curves
+
+```{r}
+pred_rf_model1 = prediction(rf_model1_predict_score[, 2], PremiumData_Test$default) 
+perf_rf_model1 = ROCR::performance(pred_rf_model1,"tpr","fpr")
+plot(perf_rf_model1, main = "ROC Curve" ,colorize = TRUE)
+```
+We see from the curve that we can reach ~0.9 tpr at fpr ~ 0.4.
+Let us check the probability cutoff at that point.
+```{r}
+str(perf_rf_model1)
+
+cutoffs <-
+  data.frame(
+  cut = perf_rf_model2@alpha.values[[1]],
+  fpr = perf_rf_model2@x.values[[1]],
+  tpr = perf_rf_model2@y.values[[1]]
+  )
+
+head(cutoffs)
+View(cutoffs)
+```
+Take fpr threshold = 0.4. Subset the dataframe cutoff to find the maximum tpr below this fpr threshold.
+
+```{r}
+cutoffs <- cutoffs[order(cutoffs$tpr, decreasing=TRUE),]
+head(subset(cutoffs, fpr < 0.4))
+```
+Take probability cut off= 0.934. and predict attrition using rf_model2.
+
+
+#### New RF Model
+```{r}
+class_prediction_with_new_cutoff = ifelse(rf_model1_predict_score[, 2] >= 0.934, 1, 0)
+new_confusion_matrix = table(PremiumData_Test$default, class_prediction_with_new_cutoff)
+new_confusion_matrix
+
+new_accuracy = sum(diag(new_confusion_matrix)) / sum(new_confusion_matrix)
+new_accuracy
+
+new_sensitivity = new_confusion_matrix[2,2] / sum(new_confusion_matrix)
+new_sensitivity
+
+new_specificity = new_confusion_matrix[1,1] / sum(new_confusion_matrix)
+new_specificity
+  
+```
+```{r}
+rfnew_model_metrics = c(new_accuracy, new_sensitivity, new_specificity, NA , NA, NA, NA, NA)
+```
+* The new RF model shows lesser Accuracy, Sensitivity & Specificity then the earlier train & test models.
+
+
+
+### Model 6 : Gradient Boosting Machines 
+```{r}
+gbm_model <- caret::train(default ~ ., data = PremiumData_Train,
+                          method = "gbm",
+                          trControl = fitControl,
+                          verbose = FALSE)
+
+summary(gbm_model)
+```
+
+
+```{r}
+gbm_predictions_test <- predict(gbm_model, newdata = PremiumData_Train, type = "raw")
+confusionMatrix(gbm_predictions_test, PremiumData_Train$default)
+```
+
+
+#### Predict Default class and probability for Gradient Boost Model
+```{r}
+#Predict on test data using Logistic Regression Model
+gbm_model_predict_class = predict(gbm_model, PremiumData_Test, type = 'raw')
+gbm_model_predict_score = predict(gbm_model, PremiumData_Test, type = 'prob')
+```
+
+
+#### Creating Confusion Matrix
+
+```{r}
+#Confusion Matrix of Gradient Boosting Model
+conf_mat_gbm_model = table(PremiumData_Test$default, gbm_model_predict_class)
+conf_mat_gbm_model
+```
+
+#### Accuracy
+```{r}
+# Accuracy of Gradient Boosting Model
+accuracy_gbm_model = sum(diag(conf_mat_gbm_model)) / sum(conf_mat_gbm_model)
+accuracy_gbm_model
+```
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of Gradient Boosting Model
+sensitivity_gbm_model = conf_mat_gbm_model[2,2]/ sum(conf_mat_gbm_model)
+sensitivity_gbm_model
+```
+
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of Gradient Boosting Model
+specificity_gbm_model = conf_mat_gbm_model[1,1] / sum(conf_mat_gbm_model)
+specificity_gbm_model
+```
+
+#### Precision
+```{r}
+# Precision of Gradient Boosting Model
+precision_gbm_model = conf_mat_gbm_model[2,2] / sum(conf_mat_gbm_model)
+precision_gbm_model
+```
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+# KS of Gradient Boosting
+#pred_gbm_model = prediction(gbm_model_predict_score[, 1000], PremiumData_Test$default) 
+#perf_gbm_model = ROCR::performance(pred_gbm_model,"tpr","fpr")
+#ks_gbm_model = max(attr(perf_gbm_model,'y.values')[[1]] - attr(perf_gbm_model,'x.values')[[1]])
+ks_gbm_model = NA
+```
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_gbm_model = ROCR::performance(pred_model_nb, measure = "auc")
+auc_gbm_model = auc_gbm_model@y.values[[1]]
+```
+
+#### Gini
+```{r}
+library(ineq) 
+#Gini of Gradient Boosting Model
+#gini_gbm_model = ineq(gbm_model_predict_score[, 2],"gini")
+gini_gbm_model=NA
+```
+
+#### Concordance - Discordance
+```{r}
+#Concordance of Gradient Boosting Model
+concordance_gbm_model = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0),
+                                   predictedScores = ifelse(gbm_model_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - Gradient Boosting Model
+```{r}
+gbm_model_metrics = c(accuracy_gbm_model, sensitivity_gbm_model, specificity_gbm_model, precision_gbm_model, 
+ks_gbm_model, auc_gbm_model, gini_gbm_model, concordance_gbm_model$Concordance)
+gbm_model_metrics
+```
+
+
+
+
+### Model 7 : Xtreme Gradient boosting Machines 
+```{r}
+cv.ctrl <- trainControl(method = "repeatedcv", repeats = 1,number = 3, 
+                        summaryFunction = twoClassSummary,
+                        classProbs = TRUE,
+                        allowParallel=T)
+
+xgb.grid <- expand.grid(nrounds = 100,
+                        eta = c(0.01),
+                        max_depth = c(2,4),
+                        gamma = 0,               #default=0
+                        colsample_bytree = 1,    #default=1
+                        min_child_weight = 1,    #default=1
+                        subsample = 1            #default=1
+)
+
+xgb_model <- caret::train(default~.,
+                          data=PremiumData_Train,
+                          method="xgbTree",
+                          trControl=cv.ctrl,
+                          tuneGrid=xgb.grid,
+                          verbose=T,
+                          nthread = 2
+)
+
+```
+
+
+ Predict using the trained model & check performance on test set
+```{r}
+xgb_predictions_test <- predict(xgb_model, newdata = PremiumData_Test, type = "raw")
+#confusionMatrix(xgb_predictions_test, PremiumData_Test$default)
+```
+
+
+
+#### Predict Default class and probability for XG Boost
+```{r}
+#Predict on test data using XG Boost Model
+xgb_model_predict_class = predict(xgb_model, PremiumData_Test, type = 'raw')
+xgb_model_predict_score = predict(xgb_model, PremiumData_Test, type = 'prob')
+```
+
+
+#### Creating Confusion Matrix
+
+```{r}
+#Confusion Matrix of XG Boost Model
+conf_mat_xgb_model = table(PremiumData_Test$default, xgb_model_predict_class)
+conf_mat_xgb_model
+
+```
+
+#### Accuracy
+```{r}
+# Accuracy of XG Boost Model
+accuracy_xgb_model = sum(diag(conf_mat_xgb_model)) / sum(conf_mat_xgb_model)
+accuracy_xgb_model 
+```
+
+#### Sensitivity of Model on Test Data
+```{r}
+# Sensitivity of XG Boost Model
+sensitivity_xgb_model = conf_mat_xgb_model[2,2]/ sum(conf_mat_xgb_model)
+sensitivity_xgb_model
+```
+
+
+#### Specificity of models on Test Data
+```{r}
+# Specificity of XG Boost Model
+specificity_xgb_model = conf_mat_xgb_model[1,1] / sum(conf_mat_xgb_model)
+specificity_xgb_model
+```
+
+#### Precision
+```{r}
+# Precision of XG Boost Model
+precision_xgb_model = conf_mat_xgb_model[2,2] / sum(conf_mat_xgb_model)
+```
+
+#### KS
+```{r}
+# Using library ROCR functions prediction and performance
+library(ROCR)
+# KS of XG Boost Model
+pred_xgb_model = prediction(xgb_model_predict_score[, 2], PremiumData_Test$default) 
+perf_xgb_model = ROCR::performance(pred_xgb_model,"tpr","fpr")
+ks_xgb_model = max(attr(perf_xgb_model,'y.values')[[1]] - attr(perf_xgb_model,'x.values')[[1]])
+```
+
+#### AUC
+```{r}
+# Using library ROCR
+auc_xgb_model = ROCR::performance(pred_xgb_model, measure = "auc")
+auc_xgb_model = auc_xgb_model@y.values[[1]]
+```
+
+#### Gini
+```{r}
+library(ineq) 
+#Gini of XG Boost Model
+gini_xgb_model = ineq(xgb_model_predict_score[, 2],"gini")
+```
+
+#### Concordance - Discordance
+```{r}
+#Concordance of XG Boost Model
+concordance_xgb_model = Concordance(actuals = ifelse(PremiumData_Test$default == 'Defaulters', 1,0),
+                                   predictedScores = ifelse(xgb_model_predict_class == 'Defaulters', 1,0))
+```
+
+
+#### METRICS - XG Boost model
+```{r}
+xgb_model_metrics = c(accuracy_gbm_model, sensitivity_xgb_model, specificity_xgb_model, precision_xgb_model, 
+ks_xgb_model, auc_xgb_model, gini_xgb_model, concordance_xgb_model$Concordance)
+```
+
+
+
+
+### MODELS COMPARISION
+
+```{r}
+comparison_table = data.frame(cart_model1_metrics,cart_model2_metrics, rf_model1_metrics,rf_model2_metrics, lrmod_metrics,model_nb_metrics,knn_model_metrics,gbm_model_metrics,xgb_model_metrics)
+
+rownames(comparison_table) = c("Accuracy", "Sensitivity", "Specificity", "Precision", "KS", "Auc", "Gini", "Concordance")
+
+comparison_table
+```
+
+
+
+## Interpreting the best model:
+
+Having tried out various models and techniques, we have to realise the variables which are important from the perspective of the basic objective of the project i.e. **identifying upfront, the customers who have the propensity to default of their premium payments**.
+
+1) The basic indicator for identifying on the defaulters would involve looking at the **Sensitivity** attributes of each model. **Sensitivity** identifies the true positive class who form the positive class - Defaulters.
+
+All the models are giving very high Sensitivity score (above 92). Hence we can safely say all models (apart from Gradient Boost Model) qualify on the Sensitivity threshold.
+
+
+
+
+
+
+
+2) **Confusion Matrix** 
+
+Models | True Positive  | True Negative
+------------- | -------------
+CART Model1 | 176 | 14756
+CART Model2 | 0 | 14971
+Logistic Regression | 120 | 14877
+Naive Bayes | 0 | 14968
+KNN  | 113 | 14842
+RF Model1 | 155 | 14831
+RF Model2 | 69 | 14922
+Gradient Boost | 152 | 14845
+XG Boost |113 | 14890
+
+
+Looking for the models providing high True Positive / True Negativity, we identify **CART Model 1**, **Random Forest Model 1** & **Gradient Boost**.
+
+3) **Accuracy** will tell us the proportion of the Defaulters & Non-Defaulters which also forms an important indicator while selecting the right model.
+
+All the models are giving very high Accuracy score (above 93). Hence we can safely say all models  qualify on the Accuracy threshold.
+
+4) **Specificity** will highlight the non-defaulters, which will help us identify and go after the other cohort i.e. the Defaulters.
+
+Apart from the Gradient Boost model which provides a very high Specificity (99.30%), none of the models have a good Specificity output.In the given models the Cart Model 1 with 01.10% & Random Forest Model 1 with 0.97% are better than the other models in identifying the non-defaulters.
+
+
+5) **AUC ROC** which is performance measurement for classification at various thresholds, ROC is a probability curve and AUC represents the degree or measure of separability. It tells how much the model is capable of distinguishing between the defaulters and non-defaulters. The higher the AUC, the better the performance of the model at distinguishing between the positive and negative classes
+
+Models | AUC
+------------- | -------------
+Cart Model 1 | 80
+RF Model 1 | 81
+KNN | 73
+Gradient Boost | 82
+XG Boost | 82
+
+All the have a good AUC score
+
+
+6) **Kolmogorov-Smirnov Test** will help us decide if the sample comes from a  population with specific distribution. The p-value returned by the k-s test has the same interpretation as other p-values. You reject the null hypothesis that the two samples were drawn from the same distribution if the p-value is less than your significance level.
+
+All the models reject the Null Hypothesis that the two samples are from the same distribution, so are good on the KS Test.
+
+
+
+7) **GINI coefficient** which is measure of the distribution of defaulters across the population is a good indicator of inequality in the population. A level 0 would indicate all are same (equality) and as the numbers increase, so does the degree of inequality in the population.
+
+Models | GINI
+------------- | -------------
+Cart Model 1 | 0.3
+RF Model 1 | 0.5
+Logistic Regression | 0.3
+KNN | 0.4
+Gradient Boost | 0.8
+XG Boost | 0.8
+
+Cart Model & Logistic Regression models how shows least degree of inequality compared to others. **This would be a crucial indicator to consider between Cart Model 1 & Random Forest 1, who seem to be filtering out a the most preferred Models to work upon.**
+
+
+8) **Precision - Positive Predictive Value (PPV)** is the probability that customers identified with positive test  as defaulters are truly defaulters, i.e. how often is a positive test represents true positive.
+
+Models | Precision
+------------- | -------------
+Cart Model 1 | 37.73
+RF Model 1 | 50.27
+Logistic Regression | 69.33
+KNN | 61.33
+Gradient Boost | 0.92
+XG Boost | 0.93
+
+Precision levels between Cart Model 1 & RF 1 would be of contention here as we need to deecide b etween these 2 models as they tick the boxes on most verticals.
+
+**CONCLUSION**
+
+**CART Model 1 & Random Forest Model 1**, both emerge as the better models to work upon.
+
+* When we compare the efficiency of these two models, Random Forest has better predictive power and accuracy than a  CART model because of random forest exhibit lower variance.
+* Random Forest creates multiple CART trees based on "bootstrapped" samples of data and then combines the predictions. Also,Random Forest inherits properties of CART-like variable selection, missing values and outlier handling, nonlinear relationships, and variable interaction detection.
+
+**Random Forest Model 1** will be more efficient in identifying more True Positives i.e. the Defaulters, hence Random Forest model will be the model better model to work with.
+
+
+
+## Business Insights & Recommendations:
+
+* Having worked out ways to identify the cohort of customers who could have the prophecy to defaulter, we will need to dive a bit deeper into our findings to discover the patterns   and behaviors of these customers. This will be important because we will eventually need to address these issues and provide easy to follow options and solutions to push them to   pay their premiums on time.
+
+* Our findings show that some aspects are prominent among these cohorts of customers, namely
+  + The customers who pay their premium late by 6 to 12 months
+  + Number of Dependents - more the number of dependents make it difficult to manage premiums
+  + Risk Score - customers with low risk score tend to default
+  + Premiums paid is a good indicator 
+  + Number of premiums paid also is a good indicator
+  We will need to identify the mix among these  factors to understand what would be the options we could work out of these groups.
+ 
+ **Recommendations:**
+ 
+ * We need to keep in mind the current economic fallout due to the pandemic and the impact it has had on jobs/ business/income when we come our with solutions for the payments of     the premiums. This could be in the lines of:
+  + Creating multiple options in paying premiums
+  + Multiple bouquets or sachet options for easy buy for specific plan or specific period
+  + Options to pay premiums at various time plans like bi-annual, quarterly, monthly etc. depending on the kind of customer we target to address.
+  + We could approach the insurance company to get some more information to further distill and identify the cohorts with reference to some information which may not be provided in  the shared data. This could include information like Gender, Type of Insurance (purchased/ defaulted), frequency of the premiums to be paid, etc.
+
+  
+
+
+
+
+
+
+
+
+
+
+### Code Appendix
+
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+
+```
+
+
+
+
+
+
+
+
+
+
